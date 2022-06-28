@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk
 import logging
 from time import sleep
+from tooltip import CreateToolTip
 
 midi_chan = 0 # MIDI channel (0 based)
 sysex_device_type = {
@@ -23,6 +24,8 @@ midi_out = client.midi_outports.register('out')
 ev = []
 echo_id = 0x00
 
+assign_options = ['Disabled', 'CC', 'Note']
+behaviour_options = ['Momentary', 'Toggle']
 control_map = {
     'nanoKONTROL1': {
         'param map': {
@@ -41,8 +44,8 @@ control_map = {
             'chan': 0,
             'slider': 1,
             'knob': 5,
-            'button a': 9,
-            'button b': 16,
+            'button_a': 9,
+            'button_b': 16,
             'transport 1': 1,
             'transport 2': 6,
             'transport 3': 11,
@@ -65,24 +68,24 @@ control_map = {
             'channel': 0,
             'slider': 1,
             'knob': 7,
-            'button a': 13,
+            'button_a': 13,
             'solo': 13,
-            'button b': 19,
+            'button_b': 19,
             'mute': 19,
-            'button c': 25,
+            'button_c': 25,
             'prime': 25,
             'transport 1': 1,
-            'prev track': 1,
+            'prev_track': 1,
             'transport 2': 7,
-            'next track': 7,
+            'next_track': 7,
             'transport 3': 13,
             'cycle': 13,
             'transport 4': 19,
-            'marker set': 19,
+            'set_marker': 19,
             'transport 5': 25,
-            'prev marker': 25,
+            'prev_marker': 25,
             'transport 6': 31,
-            'next marker': 31,
+            'next_marker': 31,
             'transport 7': 37,
             'rew': 37,
             'transport 8': 43,
@@ -128,17 +131,17 @@ class scene:
         for group, group_offset in enumerate(control_map[self.device_type]['groups']):
             self.set_group_channel(group, 15)
             if self.device_type == "nanoKONTROL1":
-                for i, control in enumerate(('slider', 'knob', 'button a', 'button b')):
+                for i, control in enumerate(('slider', 'knob', 'button_a', 'button_b')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
                     self.set_control_parameter(group_offset, control, 'cc/note', 0x10 * i + group) #TODO: What is the default CC?
                     self.set_control_parameter(group_offset, control, 'off', 0)
                     self.set_control_parameter(group_offset, control, 'on', 127)
-                for i, control in enumerate(('button a', 'button b')):
+                for i, control in enumerate(('button_a', 'button_b')):
                     self.set_control_parameter(group_offset, control, 'behaviour', 0)
                     self.set_control_parameter(group_offset, control, 'attack', 0) #TODO: What is the default attack value
                     self.set_control_parameter(group_offset, control, 'decay', 0) #TODO: What is the default decay value
             elif self.device_type == "nanoKONTROL2":
-                for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime', 'prime')):
+                for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
                     self.set_control_parameter(group_offset, control, 'cc/note', 0x10 * i + group)
                     self.set_control_parameter(group_offset, control, 'off', 0)
@@ -150,8 +153,8 @@ class scene:
             pass #TODO Implement nanoKONTROL1 transport
 
         elif self.device_type == 'nanoKONTROL2':
-            for i, transport in enumerate(('play', 'stop', 'rew', 'ff', 'rec', 'cycle', 'prev track', 'next track', 'marker set', 'prev marker', 'next marker')):
-                transport_offset = control_map[self.device_type]['group map'][transport]
+            for i, control in enumerate(('play', 'stop', 'rew', 'ff', 'rec', 'cycle', 'prev_track', 'next_track', 'set_marker', 'prev_marker', 'next_marker')):
+                transport_offset = control_map[self.device_type]['transport']
                 self.set_control_parameter(transport_offset, control, 'assign', 1)
                 if i < 6:
                     self.set_control_parameter(transport_offset, control, 'cc/note',  0x29 + i)
@@ -205,7 +208,7 @@ class scene:
     #   nanoKONTROL1 only
     def get_scene_name(self):
         name = ""
-        if device_type == 'nanoKONTROL1':
+        if self.device_type == 'nanoKONTROL1':
             for c in self.data[:12]:
                 name += chr(c)
         return name
@@ -215,7 +218,7 @@ class scene:
     #   name: Scene name (12 characters)
     #   nanoKONTROL1 only
     def set_scene_name(self, name):
-        if device_type == 'nanoKONTROL1':
+        if self.device_type == 'nanoKONTROL1':
             for i,c in enumerate(name[:12]):
                 self.data[i] = ord(c)
 
@@ -223,9 +226,9 @@ class scene:
     # Get global MIDI channel
     #   returns: MIDI channel
     def get_global_channel(self):
-        if device_type == 'nanoKONTROL1':
+        if self.device_type == 'nanoKONTROL1':
             return self.data[12]
-        elif device_type == 'nanoKONTROL2':
+        elif self.device_type == 'nanoKONTROL2':
             return self.data[0]
         return 0
 
@@ -294,12 +297,12 @@ class scene:
 
     # Get control parameter
     #   group_offset: Offset of group / transport
-    #   control: Control name, e.g. 'button a'
+    #   control: Control name, e.g. 'button_a'
     #   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
     #   returns: Parameter value or 0 if parameter not available
     def get_control_parameter(self, group_offset, control, param):
         try:
-            control_offset = control_map[self.device_type]['transport map'][control]
+            control_offset = control_map[self.device_type]['group map'][control]
             param_offset = control_map[self.device_type]['param map'][param][0]
             return self.data[group_offset + control_offset + param_offset]
         except:
@@ -308,23 +311,47 @@ class scene:
 
     # Set control parameter
     #   group_offset: Offset of group / transport
-    #   control: Control name, e.g. 'button a'
+    #   control: Control name, e.g. 'button_a'
     #   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
     #   value: Parameter value
     def set_control_parameter(self, group_offset, control, param, value):
         try:
             control_offset = control_map[self.device_type]['group map'][control]
-            param_offset = control_map[self.device_type]['param_map'][param][0]
-            param_max = control_map[self.device_type]['param_map'][param][1]
+            param_offset = control_map[self.device_type]['param map'][param][0]
+            param_max = control_map[self.device_type]['param map'][param][1]
             if value > param_max:
                 return False
+            if group_offset + control_offset + param_offset == 28:
+                logging.warning("Setting data[28] to %d", value)
             self.data[group_offset + control_offset + param_offset] = value
         except:
             return False
         return True
 
 
-
+    # Get configuration info about a control as text
+    #   control Name of control, e.g. "prime 1"
+    def get_info(self, control):
+        parts = control.split()
+        if parts[0] in ('slider', 'knob', 'button_a', 'solo', 'button_b', 'mute', 'button_c', 'prime'):
+            group = int(parts[1])
+            group_offset = control_map[self.device_type]['groups'][group]
+            title = parts[0].replace('_', ' ').capitalize() + " " + str(group + 1)
+        elif parts[0] in ('transport 1', 'prev_track', 'transport 2', 'next_track', 'transport 3', 'cycle', 'transport 4', 'set_marker', 'transport 5', 'prev_marker', 'transport 6', 'next_marker', 'transport 7', 'rew', 'transport 8', 'ff', 'transport 9', 'stop', 'play', 'rec'):
+            group_offset = control_map[self.device_type]['transport']
+            title = parts[0].replace('_', ' ').capitalize()
+        else:
+            return control
+        assign = assign_options[self.get_control_parameter(group_offset, parts[0], 'assign')]
+        cc_note = self.get_control_parameter(group_offset, parts[0], 'cc/note')
+        return "{}\n{}: {}\n{}\nMin: {}\nMax: {}".format(
+            title,
+            assign,
+            cc_note,
+            behaviour_options[self.get_control_parameter(group_offset, parts[0], 'behaviour')],
+            self.get_control_parameter(group_offset, parts[0], 'off'),
+            self.get_control_parameter(group_offset, parts[0], 'on')
+        )
 
 
 ## MIDI messages sent from software to device ##
@@ -346,7 +373,7 @@ def send_device_search():
 def send_command_list(data):
     global ev
     try:
-        ev = [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type[device_type.get()] + data + [0xF7]
+        ev = [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type[scene_data.device_type] + data + [0xF7]
     except Exception as e:
         logging.warning(e)
 
@@ -490,29 +517,40 @@ btn_test_leds.grid(row=1, column=8)
 ttk.Label(frame_left, text="TRACK").grid(row=0, columnspan=2)
 btn_prev_track = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
 btn_prev_track.grid(row=1, column=0)
+CreateToolTip(btn_prev_track, scene_data, 'prev_track')
 btn_next_track = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
 btn_next_track.grid(row=1, column=1)
+CreateToolTip(btn_next_track, scene_data, 'next_track')
 
 ttk.Label(frame_left, text="MARKER").grid(row=2, column=2, columnspan=3)
 btn_cycle = tk.Button(frame_left, width=6, padx=2, pady=2, text="CYCLE")
 btn_cycle.grid(row=3, column=0)
+CreateToolTip(btn_cycle, scene_data, 'cycle')
 btn_marker_set = tk.Button(frame_left, width=6, padx=2, pady=2, text="SET")
 btn_marker_set.grid(row=3, column=2)
+CreateToolTip(btn_marker_set, scene_data, 'set_marker')
 btn_marker_prev = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
 btn_marker_prev.grid(row=3, column=3)
+CreateToolTip(btn_marker_prev, scene_data, 'prev_marker')
 btn_marker_next = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
 btn_marker_next.grid(row=3, column=4)
+CreateToolTip(btn_marker_next, scene_data, 'next_marker')
 
 btn_rew = tk.Button(frame_left, width=6, padx=2, pady=2, text="<<")
 btn_rew.grid(row=4, column=0)
+CreateToolTip(btn_rew, scene_data, 'rew')
 btn_ff = tk.Button(frame_left, width=6, padx=2, pady=2, text=">>")
 btn_ff.grid(row=4, column=1)
+CreateToolTip(btn_ff, scene_data, 'ff')
 btn_stop = tk.Button(frame_left, width=6, padx=2, pady=2, text="STOP")
 btn_stop.grid(row=4, column=2)
+CreateToolTip(btn_stop, scene_data, 'stop')
 btn_play = tk.Button(frame_left, width=6, padx=2, pady=2, text="PLAY")
 btn_play.grid(row=4, column=3)
+CreateToolTip(btn_play, scene_data, 'play')
 btn_rec = tk.Button(frame_left, width=6, padx=2, pady=2, text="REC")
 btn_rec.grid(row=4, column=4)
+CreateToolTip(btn_rec, scene_data, 'rec')
 
 for group in range(8):
     frame_controls.columnconfigure(group * 2 + 1, weight=1)
@@ -520,14 +558,19 @@ for group in range(8):
     lbl.grid(row=0, column = group * 2 + 1)
     slider = ttk.Scale(frame_controls, orient="horizontal", from_=0, to=127, value=64)
     slider.grid(row = 1, column = group * 2 + 1)
+    CreateToolTip(slider, scene_data, 'knob {}'.format(group))
     slider = ttk.Scale(frame_controls, orient="vertical", from_=127, to=0, value=100)
     slider.grid(row = 2, column = group * 2 + 1, rowspan=3, sticky='ns')
+    CreateToolTip(slider, scene_data, 'slider {}'.format(group))
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text = "S")
     btn.grid(row = 2, column=group * 2)
+    CreateToolTip(btn, scene_data, 'solo {}'.format(group))
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="M")
     btn.grid(row = 3, column=group * 2)
+    CreateToolTip(btn, scene_data, 'mute {}'.format(group))
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="R")
     btn.grid(row = 4, column = group * 2)
+    CreateToolTip(btn, scene_data, 'prime {}'.format(group))
 
 
 ##########
@@ -568,8 +611,10 @@ def process(frames):
             major = data[12] + (data[13]<< 7)
             if family_id == 147:
                 device_type.set('nanoKONTROL2')
+                scene_data.device_type = 'nanoKONTROL2'
             elif family_id == 132:
                 device_type.set('nanoKONTROL1')
+                scene_data.device_type = 'nanoKONTROL1'
         elif len(data) == 3:
             cmd = data[0] & 0xF0
             if cmd == 0x80 or cmd == 0x90 and data[2] == 0:
