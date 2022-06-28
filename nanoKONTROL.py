@@ -11,18 +11,17 @@ import tkinter as tk
 from tkinter import ttk
 import logging
 from time import sleep
-from threading import Timer
 
 midi_chan = 0 # MIDI channel (0 based)
-sysex_device_type = (0x00,0x01,0x13)
-device_types = ['nanoKONTROL1', 'nanoKONTROL2']
-
-client = jack.Client("riban-nKonfig")
+sysex_device_type = {
+    'nanoKONTROL1': [0x00, 0x01, 0x04, 0x00],
+    'nanoKONTROL2': [0x00, 0x01, 0x13, 0x00]
+}
+client = jack.Client("riban-nanoKonfig")
 midi_in = client.midi_inports.register('in')
 midi_out = client.midi_outports.register('out')
 ev = []
 echo_id = 0x00
-
 
 control_map = {
     'nanoKONTROL1': {
@@ -346,12 +345,15 @@ def send_device_search():
 #   data: List containing the message payload
 def send_command_list(data):
     global ev
-    ev = [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type + [0x00] + data + [0xF7]
+    try:
+        ev = [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type[device_type.get()] + data + [0xF7]
+    except Exception as e:
+        logging.warning(e)
 
 
 # Request current scene data dump from device
 def send_dump_request():
-    send_command_list([0x1F, 0x10, 0x00])    
+    send_command_list([0x1F, 0x10, 0x00])
 
 
 # Request current temporary scene data be saved on device
@@ -479,6 +481,8 @@ ttk.Label(frame_top, text="Device: ").grid(row=1, column=4)
 btn_device_type = ttk.Button(frame_top, textvariable=device_type, command=on_device_type_press)
 btn_device_type.grid(row=1, column=5)
 
+btn_get_scene = ttk.Button(frame_top, text="Get Scene", command=send_dump_request)
+btn_get_scene.grid(row=1, column=6)
 
 ttk.Label(frame_left, text="TRACK").grid(row=0, columnspan=2)
 btn_prev_track = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
@@ -547,7 +551,7 @@ def process(frames):
         #print(str)
         txt_midi_in.set(str)
 
-        if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42) and data[6:8] == sysex_device_type:
+        if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42):
             # Device inquiry reply
             midi_chan = data[2]
             major = data[12] + (data[13 << 7])
@@ -577,19 +581,29 @@ def process(frames):
             elif cmd == 0xE0:
                 # Pitch bend
                 pass
-        elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type + [0x00]:
+        elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type:
             # Command list
-            if data[7:10] == [0x5F, 0x23, 0x00]:
+            if data[7:13] == [0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40]:
+                # nanoKONTROL2 data dump
+                scene_data.set_data(data[13:-1])
+            elif data[7:13] == [0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40]:
+                # nanoKONTROL1 data dump
+                scene_data.set_data(data[13:-1])
+            elif data[7:10] == [0x5F, 0x23, 0x00]:
                 # Load data ACK
+                #TODO: Indicate successful reception of data
                 pass
             elif data[7:10] == [0x5F, 0x24, 0x00]:
                 # Load data NAK
+                #TODO: Indicate failed reception of data
                 pass
             elif data[7:10] == [0x5F, 0x21, 0x00]:
                 # Write completed
+                #TODO: Indicate successful data write
                 pass
             elif data[7:10] == [0x5F, 0x22, 0x00]:
                 # Write error
+                #TODO: Indicate failed data write
                 pass
         elif data[7:10] == [0x40, 0x00, 0x02]:
             # Native mode out
@@ -598,10 +612,10 @@ def process(frames):
             # Native mode in
             pass
         elif data[7:10] == [0x5F, 0x42, 0x00]:
-            # Mode normal
+            # Normal mode
             pass
         elif data[7:10] == [0x5F, 0x42, 0x01]:
-            # Native normal
+            # Native mode
             pass
         
 
