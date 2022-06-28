@@ -321,8 +321,6 @@ class scene:
             param_max = control_map[self.device_type]['param map'][param][1]
             if value > param_max:
                 return False
-            if group_offset + control_offset + param_offset == 28:
-                logging.warning("Setting data[28] to %d", value)
             self.data[group_offset + control_offset + param_offset] = value
         except:
             return False
@@ -514,7 +512,8 @@ btn_get_scene.grid(row=1, column=6)
 btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
 btn_test_leds.grid(row=1, column=8)
 
-ttk.Label(frame_left, text="TRACK").grid(row=0, columnspan=2)
+lbl_track = ttk.Label(frame_left, text="TRACK")
+lbl_track.grid(row=0, columnspan=2)
 btn_prev_track = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
 btn_prev_track.grid(row=1, column=0)
 CreateToolTip(btn_prev_track, scene_data, 'prev_track')
@@ -522,7 +521,8 @@ btn_next_track = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
 btn_next_track.grid(row=1, column=1)
 CreateToolTip(btn_next_track, scene_data, 'next_track')
 
-ttk.Label(frame_left, text="MARKER").grid(row=2, column=2, columnspan=3)
+lbl_marker = ttk.Label(frame_left, text="MARKER")
+lbl_marker.grid(row=2, column=2, columnspan=3)
 btn_cycle = tk.Button(frame_left, width=6, padx=2, pady=2, text="CYCLE")
 btn_cycle.grid(row=3, column=0)
 CreateToolTip(btn_cycle, scene_data, 'cycle')
@@ -552,25 +552,73 @@ btn_rec = tk.Button(frame_left, width=6, padx=2, pady=2, text="REC")
 btn_rec.grid(row=4, column=4)
 CreateToolTip(btn_rec, scene_data, 'rec')
 
-for group in range(8):
+group_controls = {}
+for group in range(9):
+    group_controls[group] = {}
     frame_controls.columnconfigure(group * 2 + 1, weight=1)
     lbl = ttk.Label(frame_controls, text = "{}".format(group + 1))
     lbl.grid(row=0, column = group * 2 + 1)
+    group_controls[group]['title'] = lbl
     slider = ttk.Scale(frame_controls, orient="horizontal", from_=0, to=127, value=64)
     slider.grid(row = 1, column = group * 2 + 1)
     CreateToolTip(slider, scene_data, 'knob {}'.format(group))
+    group_controls[group]['knob'] = slider
     slider = ttk.Scale(frame_controls, orient="vertical", from_=127, to=0, value=100)
     slider.grid(row = 2, column = group * 2 + 1, rowspan=3, sticky='ns')
     CreateToolTip(slider, scene_data, 'slider {}'.format(group))
+    group_controls[group]['slider'] = slider
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text = "S")
     btn.grid(row = 2, column=group * 2)
     CreateToolTip(btn, scene_data, 'solo {}'.format(group))
+    group_controls[group]['solo'] = btn
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="M")
     btn.grid(row = 3, column=group * 2)
     CreateToolTip(btn, scene_data, 'mute {}'.format(group))
+    group_controls[group]['mute'] = btn
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="R")
     btn.grid(row = 4, column = group * 2)
     CreateToolTip(btn, scene_data, 'prime {}'.format(group))
+    group_controls[group]['prime'] = btn
+
+
+def set_device_type(type):
+    device_type.set(type)
+    scene_data.device_type = type
+    if type == 'nanoKONTROL1':
+        for group in range(9):
+            group_controls[group]['prime'].grid_remove()
+        group_controls[8]['title'].grid()
+        group_controls[8]['knob'].grid()
+        group_controls[8]['slider'].grid()
+        group_controls[8]['solo'].grid()
+        group_controls[8]['mute'].grid()
+        btn_test_leds.grid_remove()
+        btn_marker_next.grid_remove()
+        btn_marker_prev.grid_remove()
+        btn_marker_set.grid_remove()
+        btn_next_track.grid_remove()
+        btn_prev_track.grid_remove()
+        lbl_track.grid_remove()
+        lbl_marker.grid_remove()
+
+    elif type == 'nanoKONTROL2':
+        for group in range(8):
+            group_controls[group]['prime'].grid()
+        group_controls[8]['title'].grid_remove()
+        group_controls[8]['knob'].grid_remove()
+        group_controls[8]['slider'].grid_remove()
+        group_controls[8]['solo'].grid_remove()
+        group_controls[8]['mute'].grid_remove()
+        group_controls[8]['prime'].grid_remove()
+        btn_test_leds.grid()
+        btn_test_leds.grid()
+        btn_marker_next.grid()
+        btn_marker_prev.grid()
+        btn_marker_set.grid()
+        btn_next_track.grid()
+        btn_prev_track.grid()
+        lbl_track.grid()
+        lbl_marker.grid()
 
 
 ##########
@@ -609,12 +657,10 @@ def process(frames):
             member_id = data[8] + (data[9] << 7)
             minor = data[10]  + (data[11]<< 7)
             major = data[12] + (data[13]<< 7)
-            if family_id == 147:
-                device_type.set('nanoKONTROL2')
-                scene_data.device_type = 'nanoKONTROL2'
-            elif family_id == 132:
-                device_type.set('nanoKONTROL1')
-                scene_data.device_type = 'nanoKONTROL1'
+            if family_id == 132:
+                set_device_type('nanoKONTROL1')
+            elif family_id == 147:
+                set_device_type('nanoKONTROL2')
         elif len(data) == 3:
             cmd = data[0] & 0xF0
             if cmd == 0x80 or cmd == 0x90 and data[2] == 0:
@@ -689,5 +735,7 @@ def refresh_jack_ports():
 
 # Activate jack client and get available MIDI ports
 client.activate()
+
+set_device_type('nanoKONTROL2')
 
 root.mainloop()
