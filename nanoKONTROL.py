@@ -484,6 +484,9 @@ btn_device_type.grid(row=1, column=5)
 btn_get_scene = ttk.Button(frame_top, text="Get Scene", command=send_dump_request)
 btn_get_scene.grid(row=1, column=6)
 
+btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
+btn_test_leds.grid(row=1, column=8)
+
 ttk.Label(frame_left, text="TRACK").grid(row=0, columnspan=2)
 btn_prev_track = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
 btn_prev_track.grid(row=1, column=0)
