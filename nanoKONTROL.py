@@ -24,6 +24,8 @@ midi_out = client.midi_outports.register('out')
 ev = []
 echo_id = 0x00
 
+ctrl_map = {} # Map of GUI controls with associated data structures
+
 assign_options = ['Disabled', 'CC', 'Note']
 behaviour_options = ['Momentary', 'Toggle']
 control_map = {
@@ -123,8 +125,10 @@ class scene:
     # Reset scene data to default values
     def reset_data(self):
         if self.device_type == "nanoKONTROL1":
+            self.data = [0] * 259 # 7 * 37 (3 unused bytes)
             self.set_scene_name("scene 0")
         elif self.device_type == "nanoKONTROL2":
+            self.data = [0] * 343 # 7 * 39 (4 unused bytes)
             self.set_control_mode(0)
             self.set_led_mode(0)
         self.set_global_channel(15)
@@ -177,15 +181,16 @@ class scene:
     def get_midi_data(self):
         sysex = []
         dest_offset = 0
-        for offset in range(0, len(self.data), 7):
+        for offset in range(0, len(self.data) - 7, 7):
             b0 = 0
             sysex.append(b0)
+            base_word = dest_offset
             dest_offset += 1
-            for word in range(8):
+            for word in range(7):
                 b0 |= (self.data[offset + word] & 0x80) >> (7 - word)
-                sysex.append(self.data[dest_offset] & 0x7F)
+                sysex.append(self.data[offset + word] & 0x7F)
                 dest_offset += 1
-            sysex[offset] = b0
+            sysex[base_word] = b0
         return sysex
 
 
@@ -382,8 +387,8 @@ def send_dump_request():
 
 
 # Request current temporary scene data be saved on device
-#   scene: Index of scene to save
-def send_scene_write_request(scene):
+#   scene: Index of scene to save [0..3, Default: 0]
+def send_scene_write_request(scene=0):
     if scene < 0 or scene > 3:
         return
     send_command_list([0x1F, 0x11, scene])
@@ -405,7 +410,7 @@ def send_query_mode():
 
 
 
-# Request a scene change
+# Request a scene change (nanoKONTROL1)
 #   scene: Requested scene [0..3]
 def send_scene_change_request(scene):
     if(scene >= 0 and scene <= 3):
@@ -414,9 +419,11 @@ def send_scene_change_request(scene):
 
 # Upload a scene to device "current scene"
 # Must write scene to save to persistent memory
-#   data: Block of scene data
-def send_scene_data(data):
-    send_command_list([0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40, data])
+def send_scene_data():
+    if scene_data.device_type == 'nanoKONTROL1':
+        send_command_list([0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40] + scene_data.get_midi_data())
+    elif scene_data.device_type == 'nanoKONTROL2':
+        send_command_list([0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40] + scene_data.get_midi_data())
 
 
 # Send port detect request
@@ -467,10 +474,88 @@ def test_leds():
             sleep(0.05)
 
 
+
+def assert_editor():
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'assign', editor_assign.get())
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cc/note', editor_cmd.get())
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'off', editor_min.get())
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'on', editor_max.get())
+    editor.destroy()
+
+
+def show_editor(event):
+    global editor_group_offset
+    global editor_assign
+    global editor_behaviour
+    global editor_cmd
+    global editor_min
+    global editor_max
+    global editor_ctrl
+    global editor
+
+    editor = tk.Toplevel()
+    editor.wm_title("Configuration Editor")
+
+    ctrl = ctrl_map[event.widget.winfo_id()]
+    editor_ctrl = ctrl['control']
+    is_button = editor_ctrl not in ('knob', 'slider')
+    if 'group' in ctrl:
+        editor_group_offset = control_map[scene_data.device_type]['groups'][ctrl['group']]
+    else:
+        editor_group_offset = control_map[scene_data.device_type]['transport']
+
+    tk.Label(editor, text=ctrl['title']).grid(row=0, column=0, columnspan=3)        
+
+    tk.Radiobutton(editor, text="Disabled", variable=editor_assign, value=0).grid(row=1, column=0, sticky='w')
+    tk.Radiobutton(editor, text="CC", variable=editor_assign, value=1).grid(row=1, column=1, sticky='w')
+    if is_button:
+        tk.Radiobutton(editor, text="Note", variable=editor_assign, value=2).grid(row=1, column=2, sticky='w')
+    editor_assign.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'assign'))
+
+    if is_button:
+        editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
+        tk.Radiobutton(editor, text="Momentary", variable=editor_behaviour, value=0).grid(row=2, column=0, sticky='w')
+        tk.Radiobutton(editor, text="Toggle", variable=editor_behaviour, value=1).grid(row=2, column=1, sticky='w')
+
+    editor_cmd.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'cc/note'))
+    tk.Label(editor, text="CC").grid(row=3, column=0, sticky='w')
+    tk.Spinbox(editor, from_=0, to=127, textvariable=editor_cmd).grid(row=3, column=1, sticky='w')
+
+    editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'off'))
+    if is_button:
+        tk.Label(editor, text="Off").grid(row=4, column=0, sticky='w')
+    else:
+        tk.Label(editor, text="Min").grid(row=4, column=0, sticky='w')
+    tk.Spinbox(editor, from_=0, to=127, textvariable=editor_min).grid(row=4, column=1, sticky='w')
+
+    editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'on'))
+    if is_button:
+        tk.Label(editor, text="On").grid(row=5, column=0, sticky='w')
+    else:
+        tk.Label(editor, text="Max").grid(row=5, column=0, sticky='w')
+    tk.Spinbox(editor, from_=0, to=127, textvariable=editor_max).grid(row=5, column=1, sticky='w')
+
+    ttk.Button(editor, text="Cancel", command=editor.destroy).grid(row=6, column=0, sticky='w')
+    ttk.Button(editor, text="OK", command=assert_editor).grid(row=6, column=1, sticky='w')
+    
+
+    editor.grab_set()
+
+
 scene_data = scene()
 
 root = tk.Tk()
 root.title("riban nanoKONTROL editor")
+
+editor_assign = tk.IntVar()
+editor_behaviour = tk.IntVar()
+editor_cmd = tk.IntVar()
+editor_min = tk.IntVar()
+editor_max = tk.IntVar()
+editor_group_offset = 0
+editor_ctrl = ''
+
 
 frame_left = tk.Frame(root, padx=2, pady=2)
 frame_top = tk.Frame(root, padx=2, pady=2)
@@ -509,81 +594,130 @@ btn_device_type.grid(row=1, column=5)
 btn_get_scene = ttk.Button(frame_top, text="Get Scene", command=send_dump_request)
 btn_get_scene.grid(row=1, column=6)
 
+btn_send_scene = ttk.Button(frame_top, text="Send Scene", command=send_scene_data)
+btn_send_scene.grid(row=2, column=6)
+
+btn_write_scene = ttk.Button(frame_top, text="Write Scene", command=send_scene_write_request)
+btn_write_scene.grid(row=2, column=7)
+
 btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
-btn_test_leds.grid(row=1, column=8)
+btn_test_leds.grid(row=2, column=5)
 
 lbl_track = ttk.Label(frame_left, text="TRACK")
 lbl_track.grid(row=0, columnspan=2)
+
 btn_prev_track = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
 btn_prev_track.grid(row=1, column=0)
 CreateToolTip(btn_prev_track, scene_data, 'prev_track')
+ctrl_map[btn_prev_track.winfo_id()] = {'title': 'Previous Track', 'control':'prev_track'}
+btn_prev_track.bind('<Button-1>', show_editor)
+
 btn_next_track = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
 btn_next_track.grid(row=1, column=1)
 CreateToolTip(btn_next_track, scene_data, 'next_track')
+ctrl_map[btn_next_track.winfo_id()] = {'title': 'Next Track', 'control':'next_track'}
+btn_next_track.bind('<Button-1>', show_editor)
 
 lbl_marker = ttk.Label(frame_left, text="MARKER")
 lbl_marker.grid(row=2, column=2, columnspan=3)
+
 btn_cycle = tk.Button(frame_left, width=6, padx=2, pady=2, text="CYCLE")
 btn_cycle.grid(row=3, column=0)
 CreateToolTip(btn_cycle, scene_data, 'cycle')
+ctrl_map[btn_cycle.winfo_id()] = {'title': 'Cycle', 'control':'cycle'}
+btn_cycle.bind('<Button-1>', show_editor)
+
 btn_marker_set = tk.Button(frame_left, width=6, padx=2, pady=2, text="SET")
 btn_marker_set.grid(row=3, column=2)
 CreateToolTip(btn_marker_set, scene_data, 'set_marker')
+ctrl_map[btn_marker_set.winfo_id()] = {'title': 'Set Marker', 'control':'set_marker'}
+btn_marker_set.bind('<Button-1>', show_editor)
+
 btn_marker_prev = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
 btn_marker_prev.grid(row=3, column=3)
 CreateToolTip(btn_marker_prev, scene_data, 'prev_marker')
+ctrl_map[btn_marker_prev.winfo_id()] = {'title': 'Previous Marker', 'control':'prev_marker'}
+btn_marker_prev.bind('<Button-1>', show_editor)
+
 btn_marker_next = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
 btn_marker_next.grid(row=3, column=4)
 CreateToolTip(btn_marker_next, scene_data, 'next_marker')
+ctrl_map[btn_marker_next.winfo_id()] = {'title': 'Next Marker', 'control':'next_marker'}
+btn_marker_next.bind('<Button-1>', show_editor)
 
 btn_rew = tk.Button(frame_left, width=6, padx=2, pady=2, text="<<")
 btn_rew.grid(row=4, column=0)
 CreateToolTip(btn_rew, scene_data, 'rew')
+ctrl_map[btn_rew.winfo_id()] = {'title': 'Rewind', 'control':'rew'}
+btn_rew.bind('<Button-1>', show_editor)
+
 btn_ff = tk.Button(frame_left, width=6, padx=2, pady=2, text=">>")
 btn_ff.grid(row=4, column=1)
 CreateToolTip(btn_ff, scene_data, 'ff')
+ctrl_map[btn_ff.winfo_id()] = {'title': 'Fast Forward', 'control':'ff'}
+btn_ff.bind('<Button-1>', show_editor)
+
 btn_stop = tk.Button(frame_left, width=6, padx=2, pady=2, text="STOP")
 btn_stop.grid(row=4, column=2)
 CreateToolTip(btn_stop, scene_data, 'stop')
+ctrl_map[btn_stop.winfo_id()] = {'title': 'Stop', 'control':'stop'}
+btn_stop.bind('<Button-1>', show_editor)
+
 btn_play = tk.Button(frame_left, width=6, padx=2, pady=2, text="PLAY")
 btn_play.grid(row=4, column=3)
 CreateToolTip(btn_play, scene_data, 'play')
+ctrl_map[btn_play.winfo_id()] = {'title': 'Play', 'control':'play'}
+btn_play.bind('<Button-1>', show_editor)
+
 btn_rec = tk.Button(frame_left, width=6, padx=2, pady=2, text="REC")
 btn_rec.grid(row=4, column=4)
 CreateToolTip(btn_rec, scene_data, 'rec')
+ctrl_map[btn_rec.winfo_id()] = {'title': 'Record', 'control':'rec'}
+btn_rec.bind('<Button-1>', show_editor)
 
 group_controls = {}
 for group in range(9):
     group_controls[group] = {}
     frame_controls.columnconfigure(group * 2 + 1, weight=1)
-    lbl = ttk.Label(frame_controls, text = "{}".format(group + 1))
+    lbl = ttk.Label(frame_controls, text = "{}".format(group  + 1))
     lbl.grid(row=0, column = group * 2 + 1)
     group_controls[group]['title'] = lbl
     slider = ttk.Scale(frame_controls, orient="horizontal", from_=0, to=127, value=64)
     slider.grid(row = 1, column = group * 2 + 1)
     CreateToolTip(slider, scene_data, 'knob {}'.format(group))
+    ctrl_map[slider.winfo_id()] = {'title': 'Knob {}'.format(group + 1), 'group':group, 'control':'knob'}
+    slider.bind('<Button-1>', show_editor)
     group_controls[group]['knob'] = slider
     slider = ttk.Scale(frame_controls, orient="vertical", from_=127, to=0, value=100)
     slider.grid(row = 2, column = group * 2 + 1, rowspan=3, sticky='ns')
     CreateToolTip(slider, scene_data, 'slider {}'.format(group))
+    ctrl_map[slider.winfo_id()] = {'title': 'Slider {}'.format(group + 1), 'group':group, 'control':'slider'}
+    slider.bind('<Button-1>', show_editor)
     group_controls[group]['slider'] = slider
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text = "S")
     btn.grid(row = 2, column=group * 2)
     CreateToolTip(btn, scene_data, 'solo {}'.format(group))
+    ctrl_map[btn.winfo_id()] = {'title': 'Solo {}'.format(group + 1), 'group':group, 'control':'solo'}
+    btn.bind('<Button-1>', show_editor)
     group_controls[group]['solo'] = btn
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="M")
     btn.grid(row = 3, column=group * 2)
     CreateToolTip(btn, scene_data, 'mute {}'.format(group))
+    ctrl_map[btn.winfo_id()] = {'title': 'Mute {}'.format(group + 1), 'group':group, 'control':'mute'}
     group_controls[group]['mute'] = btn
+    btn.bind('<Button-1>', show_editor)
     btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="R")
     btn.grid(row = 4, column = group * 2)
+    ctrl_map[btn.winfo_id()] = {'title': 'Prime {}'.format(group + 1), 'group':group, 'control':'prime'}
     CreateToolTip(btn, scene_data, 'prime {}'.format(group))
     group_controls[group]['prime'] = btn
-
+    btn.bind('<Button-1>', show_editor)
+ 
 
 def set_device_type(type):
     device_type.set(type)
     scene_data.device_type = type
+    scene_data.reset_data()
     if type == 'nanoKONTROL1':
         for group in range(9):
             group_controls[group]['prime'].grid_remove()
@@ -619,6 +753,8 @@ def set_device_type(type):
         btn_prev_track.grid()
         lbl_track.grid()
         lbl_marker.grid()
+
+
 
 
 ##########
