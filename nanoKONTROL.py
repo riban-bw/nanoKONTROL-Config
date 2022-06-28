@@ -5,14 +5,17 @@
 #
 # Dependencies: tkinter, jack
 
+import struct
 import jack
 import tkinter as tk
 from tkinter import ttk
 import logging
+from time import sleep
+from threading import Timer
 
 midi_chan = 0 # MIDI channel (0 based)
-sysex_device_type = [0x00,0x01,0x13]
-device_types = ['nanoKONTROL 1', 'nanoKONTROL 2']
+sysex_device_type = (0x00,0x01,0x13)
+device_types = ['nanoKONTROL1', 'nanoKONTROL2']
 
 client = jack.Client("riban-nKonfig")
 midi_in = client.midi_inports.register('in')
@@ -21,864 +24,37 @@ ev = []
 echo_id = 0x00
 
 
-## Data conversion ##
-
-# Convert raw 7-bit MIDI data to Korg 8-bit data
-# Raw data: 1st byte holds bit-7 of subsequent bytes, next 7 bytes hold bits 0..7 of each byte
-#   data: raw 7-bit MIDI data (multiple 8 x 7-bit blocks of data)
-#   returns: 7 x 8-bit blocks of data
-def midi2korg(data):
-    if len(data) // 8:
-        return # Not a valid set of 8-byte blocks
-    res = []
-    for offset in range(0, len(data), 8):
-        for word in range(1, 8):
-            res.append(data[offset + word] | (data[offset] & 1 << (word - 1)) << 8 - word)
-    return data
-
-
-# Convert Korg 8-bit data to 7-bit MIDI data
-#   data: 8-bit Korg data
-#   returns: 8 x 7-bit blocks of data
-def korg2midi(data):
-    if len(data) // 7:
-        return # Not a valid set of 7-byte blocks
-    res = []
-    dest_offset = 0
-    for offset in range(0, len(data), 7):
-        b0 = 0
-        res.append(b0)
-        dest_offset += 1
-        for word in range(8):
-            b0 |= (data[offset + word] & 0x80) >> (7 - word)
-            res.append(data[dest_offset] & 0x7F)
-            dest_offset += 1
-        res[offset] = b0
-
-
-## Access scene data##
-
-# Get scene name
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   returns: Scene name
-#   nanoKONTROL 1 only
-def get_scene_name(data):
-    name = ""
-    if device_type == 'nanoKONTROL 1':
-        for c in data[:12]:
-            name += chr(c)
-    return name
-
-
-# Set scene name
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   name: Scene name (12 characters)
-#   nanoKONTROL 1 only
-def get_scene_name(data, name):
-    if device_type == 'nanoKONTROL 1':
-        for i,c in enumerate(name[:12]):
-            data[i] = ord(c)
-
-
-# Get global MIDI channel
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   returns: MIDI channel
-def get_global_chan(data):
-    if device_type == 'nanoKONTROL 1':
-        return data[12]
-    elif device_type == 'nanoKONTROL 2':
-        return data[0]
-    return 0
-
-
-# Set global MIDI channel
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   chan: MIDI channel
-def set_global_chan(data, chan):
-    if device_type == 'nanoKONTROL 1' and chan < 16:
-        data[12] = chan
-
-
-# Get control mode
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   returns: Control mode [0:CC, 1:Cubase, 2:DP, 3:Live, 4:ProTools, 5:SONAR]
-#   nanoKONTROL 2 only
-def get_control_mode(data):
-    if device_type == 'nanoKONTROL 2':
-        return data[1]
-    return 0
-
-
-# Set control mode
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   mode: Control mode [0:CC, 1:Cubase, 2:DP, 3:Live, 4:ProTools, 5:SONAR]
-#   nanoKONTROL 2 only
-def set_control_mode(data, mode):
-    if device_type == 'nanoKONTROL 2' and mode < 6:
-        data[1] = mode
-    return 0
-
-
-# Get LED mode
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   returns: LED mode [0:Internal, 1:External]
-#   nanoKONTROL 2 only
-def get_led_mode(data):
-    if device_type == 'nanoKONTROL 2':
-        return data[2]
-    return 0
-
-
-# Set LED mode
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   mode: LED mode [0:Internal, 1:External]
-#   nanoKONTROL 2 only
-def set_led_mode(data, mode):
-    if device_type == 'nanoKONTROL 2' and mode < 1:
-        data[2] = mode
-    return 0
-
-
-# Get group MIDI channel
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: MIDI channel [0..15 or 16 for global]
-def get_group_chan(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[16 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[3 + group * 31]
-    return 0
-
-
-# Set group MIDI channel
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   chan: MIDI channel [0..15 or 16 for global]
-def set_group_chan(data, group, chan):
-    if group < 0 or group > 7 or chan < 0 or chan > 16:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[16 + group * 16] = chan
-    elif device_type == 'nanoKONTROL 2':
-        data[3 + group * 31] = chan
-
-
-# Get slider assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Assign type [0:Disabled, 1:CC]
-def get_slider_type(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[17 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[4 + group * 31]
-    return 0
-
-
-# Set slider assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   type: Assign type [0:Disabled, 1:CC]
-def set_slider_type(data, group, type):
-    if group < 0 or group > 7 or type < 0 or type > 1:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[17 + group * 16] = type
-    elif device_type == 'nanoKONTROL 2':
-        data[4 + group * 31] = type
-
-
-# Get slider CC
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: CC assigned to slider [0..127]
-def get_slider_cc(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[18 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[6 + group * 31]
-    return 0
-
-
-# Set slider CC
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   cc: CC assigned to slider [0..127]
-def set_slider_cc(data, group, cc):
-    if group < 0 or group > 7 or cc < 0 or cc > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[18 + group * 16] = cc
-    elif device_type == 'nanoKONTROL 2':
-        data[6 + group * 31] = cc
-
-
-# Get slider minimum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Minimum value [0..127]
-def get_slider_min(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[19 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[7 + group * 31]
-    return 0
-
-
-# Set slider minimum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Minimum value [0..127]
-def set_slider_min(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[19 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[7 + group * 31] = value
-
-
-# Get slider maximum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Maximum value [0..127]
-def get_slider_max(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[20 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[8 + group * 31]
-    return 0
-
-
-# Set slider maximum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Maximum value [0..127]
-def set_slider_max(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[20 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[8 + group * 31] = value
-
-
-# Get knob assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Type [0:Disabled, 1:CC]
-def get_knob_assign_type(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[21 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[10 + group * 31]
-    return 0
-
-
-# Set knob assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Type [0:Disabled, 1:CC]
-def set_knob_assign_type(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 1:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[21 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[10 + group * 31] = value
-
-
-# Get knob minimum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Minimum value [0..127]
-def get_knob_min(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[23 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[13 + group * 31]
-    return 0
-
-
-# Set knob minimum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Minimum value [0..127]
-def set_knob_min(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[23 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[13 + group * 31] = value
-
-
-# Get knob maximum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Maximum value [0..127]
-def get_knob_max(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[24 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[14 + group * 31]
-    return 0
-
-
-# Set knob maximum value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Maximum value [0..127]
-def set_knob_max(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[24 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[14 + group * 31] = value
-
-
-# Get A / solo button assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Type [0:Disabled, 1:CC, 2:Note]
-def get_button_a_assign_type(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[25 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[16 + group * 31]
-    return 0
-
-
-# Set A / solo button assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Type [0:Disabled, 1:CC, 2:Note]
-def set_button_a_assign_type(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 2:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[25 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[16 + group * 31] = value
-
-
-# Get A / solo button behaviour
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Behaviour [0:Momentary, 1:Toggle]
-def get_button_a_behaviour(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[31 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[17 + group * 31]
-    return 0
-
-
-# Set A / solo button behaviour
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Behaviour [0:Momentary, 1:Toggle]
-def set_button_a_behaviour(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 1:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[31 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[17 + group * 31] = value
-
-
-# Get A / solo button CC / note
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: CC / note [0..127]
-def get_button_a_param(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[26 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[18 + group * 31]
-    return 0
-
-
-# Set A / solo button CC / note
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: CC / note [0..127]
-def set_button_a_param(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[26 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[18 + group * 31] = value
-
-
-# Get A / solo button off value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Off value [0..127]
-def get_button_a_off_value(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[27 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[19 + group * 31]
-    return 0
-
-
-# Set A / solo button off value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Off value [0..127]
-def set_button_a_off_value(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[27 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[19 + group * 31] = value
-
-
-# Get A / solo button on value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: on value [0..127]
-def get_button_a_on_value(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[28 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[20 + group * 31]
-    return 0
-
-
-# Set A / solo button on value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: On value [0..127]
-def set_button_a_on_value(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[28 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[20 + group * 31] = value
-
-
-# Get A / solo button attack time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Attack time [0..127]
-#   nanoKONTROL 1 only
-def get_button_a_attack(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[29 + group * 16]
-    return 0
-
-
-# Set A / solo button attack time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Attack time [0..127]
-#   nanoKONTROL 1 only
-def set_button_a_attack(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[29 + group * 16] = value
-
-
-# Get A / solo button release time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Release time [0..127]
-#   nanoKONTROL 1 only
-def get_button_a_release(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[30 + group * 16]
-    return 0
-
-
-# Set A / solo button release time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Release time [0..127]
-#   nanoKONTROL 1 only
-def set_button_a_release(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[30 + group * 16] = value
-
-
-# Get B / mute button assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Type [0:Disabled, 1:CC, 2:Note]
-def get_button_b_assign_type(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[32 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[22 + group * 31]
-    return 0
-
-
-# Set B / mute button assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Type [0:Disabled, 1:CC, 2:Note]
-def set_button_b_assign_type(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 2:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[32 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[22 + group * 31] = value
-
-
-# Get B / mute button behaviour
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Behaviour [0:Momentary, 1:Toggle]
-def get_button_b_behaviour(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[38 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[23 + group * 31]
-    return 0
-
-
-# Set B / mute button behaviour
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Behaviour [0:Momentary, 1:Toggle]
-def set_button_b_behaviour(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 1:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[38 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[23 + group * 31] = value
-
-
-# Get B / mute button CC / note
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: CC / note [0..127]
-def get_button_b_param(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[33 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[24 + group * 31]
-    return 0
-
-
-# Set B / mute button CC / note
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: CC / note [0..127]
-def set_button_b_param(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[33 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[24 + group * 31] = value
-
-
-# Get B / mute button off value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Off value [0..127]
-def get_button_b_off_value(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[34 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[25 + group * 31]
-    return 0
-
-
-# Set B / mute button off value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Off value [0..127]
-def set_button_b_off_value(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[34 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[25 + group * 31] = value
-
-
-# Get B / mute button on value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: on value [0..127]
-def get_button_b_on_value(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[35 + group * 16]
-    elif device_type == 'nanoKONTROL 2':
-        return data[26 + group * 31]
-    return 0
-
-
-# Set B / mute button on value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: On value [0..127]
-def set_button_b_on_value(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[35 + group * 16] = value
-    elif device_type == 'nanoKONTROL 2':
-        data[26 + group * 31] = value
-
-
-# Get B / mute button attack time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Attack time [0..127]
-#   nanoKONTROL 1 only
-def get_button_b_attack(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[36 + group * 16]
-    return 0
-
-
-# Set B / mute button attack time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Attack time [0..127]
-#   nanoKONTROL 1 only
-def set_button_b_attack(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[36 + group * 16] = value
-
-
-# Get B / mute button release time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Release time [0..127]
-#   nanoKONTROL 1 only
-def get_button_b_release(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 1':
-        return data[37 + group * 16]
-    return 0
-
-
-# Set B / mute button release time
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Release time [0..127]
-#   nanoKONTROL 1 only
-def set_button_b_release(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 1':
-        data[37 + group * 16] = value
-
-
-# Get C / rec button assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Type [0:Disabled, 1:CC, 2:Note]
-def get_button_c_assign_type(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 2':
-        return data[28 + group * 31]
-    return 0
-
-
-# Set C / rec button assign type
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Type [0:Disabled, 1:CC, 2:Note]
-def set_button_c_assign_type(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 2:
-        return
-    if device_type == 'nanoKONTROL 2':
-        data[28 + group * 31] = value
-
-
-# Get C / rec button behaviour
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Behaviour [0:Momentary, 1:Toggle]
-def get_button_c_behaviour(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 2':
-        return data[29 + group * 31]
-    return 0
-
-
-# Set C / rec button behaviour
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Behaviour [0:Momentary, 1:Toggle]
-def set_button_c_behaviour(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 1:
-        return
-    if device_type == 'nanoKONTROL 2':
-        data[30 + group * 16] = value
-
-
-# Get C / rec button CC / note
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: CC / note [0..127]
-def get_button_c_param(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 2':
-        return data[30 + group * 31]
-    return 0
-
-
-# Set C / rec button CC / note
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: CC / note [0..127]
-def set_button_c_param(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 2':
-        data[30 + group * 31] = value
-
-
-# Get C / rec button off value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: Off value [0..127]
-def get_button_c_off_value(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 2':
-        return data[31 + group * 31]
-    return 0
-
-
-# Set C / rec button off value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: Off value [0..127]
-def set_button_c_off_value(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 2':
-        data[31 + group * 31] = value
-
-
-# Get C / rec button on value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   returns: on value [0..127]
-def get_button_c_on_value(data, group):
-    if group < 0 or group > 7:
-        return 0
-    if device_type == 'nanoKONTROL 2':
-        return data[32 + group * 31]
-    return 0
-
-
-# Set C / rec button on value
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group index [0..7]
-#   value: On value [0..127]
-def set_button_c_on_value(data, group, value):
-    if group < 0 or group > 7 or value < 0 or value > 127:
-        return
-    if device_type == 'nanoKONTROL 2':
-        data[32 + group * 31] = value
-
-
 control_map = {
-    'nanoKONTROL 1': {
+    'nanoKONTROL1': {
         'param map': {
-            'assign':[0, 1],
+            'assign':[0, 2],
             'behaviour': [6, 1],
             'cc/note': [1, 127],
             'off': [2, 127],
             'on': [3, 127],
             'attack': [4, 127],
-            'decay': [5, 127]
+            'decay': [5, 127],
+            'mmc cmd': [2, 12],
+            'mmc id': [3, 127],
+            'transport behaviour': [5, 1]
         },
         'group map': {
             'chan': 0,
             'slider': 1,
             'knob': 5,
             'button a': 9,
-            'button b': 16
+            'button b': 16,
+            'transport 1': 1,
+            'transport 2': 6,
+            'transport 3': 11,
+            'transport 4': 16,
+            'transport 5': 21,
+            'transport 6': 26,
         },
-        'transport map': {
-            'chan': 0,
-            'button 1': 1,
-            'button 2': 6,
-            'button 3': 11,
-            'button 4': 16,
-            'button 5': 21,
-            'button 6': 26,
-        },
-        'group 1': 16,
-        'group 2': 32,
-        'group 3': 48,
-        'group 4': 64,
-        'group 5': 80,
-        'group 6': 96,
-        'group 7': 112,
-        'group 8': 128,
-        'group 9': 128,
+        'groups': [16, 32, 48, 64, 80, 96, 112, 128, 144],
         'transport': 224,
     },
-    'nanoKONTROL 2': {
+    'nanoKONTROL2': {
         'param map': {
             'assign':[0, 2],
             'behaviour': [1, 1],
@@ -887,7 +63,7 @@ control_map = {
             'on': [4, 127]
         },
         'group map': {
-            'chan': 0,
+            'channel': 0,
             'slider': 1,
             'knob': 7,
             'button a': 13,
@@ -895,194 +71,261 @@ control_map = {
             'button b': 19,
             'mute': 19,
             'button c': 25,
-            'rec': 25,
+            'prime': 25,
+            'transport 1': 1,
+            'prev track': 1,
+            'transport 2': 7,
+            'next track': 7,
+            'transport 3': 13,
+            'cycle': 13,
+            'transport 4': 19,
+            'marker set': 19,
+            'transport 5': 25,
+            'prev marker': 25,
+            'transport 6': 31,
+            'next marker': 31,
+            'transport 7': 37,
+            'rew': 37,
+            'transport 8': 43,
+            'ff': 43,
+            'transport 9': 49,
+            'stop': 49,
+            'play': 55,
+            'rec': 61
         },
-        'transport map': {
-            'chan': 0,
-            'button 1': 1,
-            'button 2': 6,
-            'button 3': 11,
-            'button 4': 16,
-            'button 5': 21,
-            'button 6': 26,
+        'led_map': {
+            'solo': 0x20,
+            'mute': 0x30,
+            'prime': 0x40,
+            'play': 0x29,
+            'stop': 0x2A,
+            'rew': 0x2B,
+            'ff': 0x2C,
+            'rec': 0x2D,
+            'cycle': 0x2E
         },
-        'group 1': 16,
-        'group 2': 32,
-        'group 3': 48,
-        'group 4': 64,
-        'group 5': 80,
-        'group 6': 96,
-        'group 7': 112,
-        'group 8': 128,
-        'group 9': 128,
-        'transport': 224,
-    },
-    'nanoKONTROL 2': {
-        'group offset': 3,
-        'group size': 31,
-        'group chan': 0,
-        'slider assign': 1,
-        'slider cc/note': 3,
-        'slider min': 4,
-        'slider max': 5,
-        'knob assign': 7,
-        'knob cc/note': 9,
-        'knob min': 10,
-        'knob max': 11,
-        'solo assign': 13,
-        'solo behaviour': 14,
-        'solo cc/note': 15,
-        'solo off': 16,
-        'solo on': 17,
-        'mute assign': 19,
-        'mute behaviour': 20,
-        'mute cc/note': 21,
-        'mute off': 22,
-        'mute on': 23,
-        'rec assign': 25,
-        'rec behaviour': 26,
-        'rec cc/note': 27,
-        'rec off': 28,
-        'rec on': 29,
-        'transport chan': 251,
-        'transport assign': 0,
-        'transport behaviour': 1,
-        'transport cc/note': 2,
-        'transport off': 3,
-        'transport on': 4,
-        'transport prev': 252,
-        'transport next': 258,
-        'transport cycle': 264,
-        'transport set marker': 270,
-        'transport prev marker': 276,
-        'transport next marker': 282,
-        'transport rew': 288,
-        'transport ff': 294,
-        'transport stop': 300,
-        'transport play': 306,
-        'transport rec': 312,
+        'groups': [3, 34, 65, 96, 127, 158, 189, 220],
+        'transport': 251,
         'custom daw assign': 318
     }
 }
 
 
-param_max = {
-    'midi_chan': 16,
-    'assign': 1,
-    'cc/note': 127,
-    'min': 127,
-    'max': 127,
-    'button assign': 2,
-    'behaviour': 1
-}
+class scene:
+    def __init__(self):
+        self.data = [0] * 339 # Raw data (nanoKONTROL1 only has 256 bytes so ignore upper data)
+        self.device_type = "nanoKONTROL2"
+        self.reset_data()
 
 
-# Get control parameter
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group name ['group 1..9', 'transport']
-#   control: Control name, e.g. 'button a'
-#   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
-#   returns: Parameter value or 0 if parameter not available
-def get_control_parameter(data, group, control, param):
-    try:
-        group_offset = control_map[device_type][group]
-        if group[:5] == 'group':
-            control_offset = control_map[device_type]['group map'][control]
-        elif group[:9] == 'transport':
-            control_offset = control_map[device_type]['transport map'][control]
-        param_offset = control_map[device_type]['param_map'][param][0]
-        return data[group_offset + control_offset + param_offset]
-    except:
+    # Reset scene data to default values
+    def reset_data(self):
+        if self.device_type == "nanoKONTROL1":
+            self.set_scene_name("scene 0")
+        elif self.device_type == "nanoKONTROL2":
+            self.set_control_mode(0)
+            self.set_led_mode(0)
+        self.set_global_channel(15)
+        for group, group_offset in enumerate(control_map[self.device_type]['groups']):
+            self.set_group_channel(group, 15)
+            if self.device_type == "nanoKONTROL1":
+                for i, control in enumerate(('slider', 'knob', 'button a', 'button b')):
+                    self.set_control_parameter(group_offset, control, 'assign', 1)
+                    self.set_control_parameter(group_offset, control, 'cc/note', 0x10 * i + group) #TODO: What is the default CC?
+                    self.set_control_parameter(group_offset, control, 'off', 0)
+                    self.set_control_parameter(group_offset, control, 'on', 127)
+                for i, control in enumerate(('button a', 'button b')):
+                    self.set_control_parameter(group_offset, control, 'behaviour', 0)
+                    self.set_control_parameter(group_offset, control, 'attack', 0) #TODO: What is the default attack value
+                    self.set_control_parameter(group_offset, control, 'decay', 0) #TODO: What is the default decay value
+            elif self.device_type == "nanoKONTROL2":
+                for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime', 'prime')):
+                    self.set_control_parameter(group_offset, control, 'assign', 1)
+                    self.set_control_parameter(group_offset, control, 'cc/note', 0x10 * i + group)
+                    self.set_control_parameter(group_offset, control, 'off', 0)
+                    self.set_control_parameter(group_offset, control, 'on', 127)
+                    self.set_control_parameter(group_offset, control, 'behaviour', 0)
+
+        transport_offset = control_map[self.device_type]['transport']
+        if self.device_type == 'nanoKONTROL1':
+            pass #TODO Implement nanoKONTROL1 transport
+
+        elif self.device_type == 'nanoKONTROL2':
+            for i, transport in enumerate(('play', 'stop', 'rew', 'ff', 'rec', 'cycle', 'prev track', 'next track', 'marker set', 'prev marker', 'next marker')):
+                transport_offset = control_map[self.device_type]['group map'][transport]
+                self.set_control_parameter(transport_offset, control, 'assign', 1)
+                if i < 6:
+                    self.set_control_parameter(transport_offset, control, 'cc/note',  0x29 + i)
+                else:
+                    self.set_control_parameter(transport_offset, control, 'cc/note',  0x34 + i)
+                self.set_control_parameter(transport_offset, control, 'off', 0)
+                self.set_control_parameter(transport_offset, control, 'on', 127)
+                self.set_control_parameter(transport_offset, control, 'behaviour', 0)
+
+            self.set_led_mode(1)
+
+            for i in range(318, 323):
+                self.data[i] = 0 #TODO: What are default custom daw values?
+
+
+    # Get data in MIDI sysex format
+    # Convert Korg 8-bit data to 7-bit MIDI data
+    #   data: 8-bit Korg data
+    #   returns: List containing sysex data
+    def get_midi_data(self):
+        sysex = []
+        dest_offset = 0
+        for offset in range(0, len(self.data), 7):
+            b0 = 0
+            sysex.append(b0)
+            dest_offset += 1
+            for word in range(8):
+                b0 |= (self.data[offset + word] & 0x80) >> (7 - word)
+                sysex.append(self.data[dest_offset] & 0x7F)
+                dest_offset += 1
+            sysex[offset] = b0
+        return sysex
+
+
+    # Set data from MIDI sysex format data
+    # Convert raw 7-bit MIDI data to Korg 8-bit data
+    # Raw data: 1st byte holds bit-7 of subsequent bytes, next 7 bytes hold bits 0..7 of each byte
+    #   data: raw 7-bit MIDI data (multiple 8 x 7-bit blocks of data)
+    def set_data(self, data):
+        if len(data) // 8:
+            return False # Not a valid set of 8-byte blocks
+        i = 0
+        for offset in range(0, len(data), 8):
+            for word in range(1, 8):
+                self.data[i] = (data[offset + word] | (data[offset] & 1 << (word - 1)) << 8 - word)
+            i += 1
+
+
+    # Get scene name
+    #   returns: Scene name
+    #   nanoKONTROL1 only
+    def get_scene_name(self):
+        name = ""
+        if device_type == 'nanoKONTROL1':
+            for c in self.data[:12]:
+                name += chr(c)
+        return name
+
+
+    # Set scene name
+    #   name: Scene name (12 characters)
+    #   nanoKONTROL1 only
+    def set_scene_name(self, name):
+        if device_type == 'nanoKONTROL1':
+            for i,c in enumerate(name[:12]):
+                self.data[i] = ord(c)
+
+
+    # Get global MIDI channel
+    #   returns: MIDI channel
+    def get_global_channel(self):
+        if device_type == 'nanoKONTROL1':
+            return self.data[12]
+        elif device_type == 'nanoKONTROL2':
+            return self.data[0]
         return 0
 
 
-# Set control parameter
-#   data: Scene data in Korg 8-bit format (V1:256 bytes, V2:339 bytes)
-#   group: Group name ['group 1..9', 'transport']
-#   control: Control name, e.g. 'button a'
-#   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
-#   value: Parameter value
-#   returns: True on success
-def set_control_parameter(data, group, control, param, value):
-    try:
-        group_offset = control_map[device_type][group]
-        if group[:5] == 'group':
-            control_offset = control_map[device_type]['group map'][control]
-        elif group[:9] == 'transport':
-            control_offset = control_map[device_type]['transport map'][control]
-        param_offset = control_map[device_type]['param_map'][param][0]
-        param_max = control_map[device_type]['param_map'][param][1]
-        if value > param_max:
+    # Set global MIDI channel
+    #   chan: MIDI channel
+    def set_global_channel(self, chan):
+        if self.device_type == 'nanoKONTROL1' and chan < 16:
+            self.data[12] = chan
+
+
+    # Get control mode
+    #   returns: Control mode [0:CC, 1:Cubase, 2:DP, 3:Live, 4:ProTools, 5:SONAR]
+    #   nanoKONTROL2 only
+    def get_control_mode(self):
+        if self.device_type == 'nanoKONTROL2':
+            return self.data[1]
+        return 0
+
+
+    # Set control mode
+    #   mode: Control mode [0:CC, 1:Cubase, 2:DP, 3:Live, 4:ProTools, 5:SONAR]
+    #   nanoKONTROL2 only
+    def set_control_mode(self, mode):
+        if self.device_type == 'nanoKONTROL2' and mode < 6:
+            self.data[1] = mode
+        return 0
+
+
+    # Get LED mode
+    #   returns: LED mode [0:Internal, 1:External]
+    #   nanoKONTROL2 only
+    def get_led_mode(self):
+        if self.device_type == 'nanoKONTROL2':
+            return self.data[2]
+        return 0
+
+
+    # Set LED mode
+    #   mode: LED mode [0:Internal, 1:External]
+    #   nanoKONTROL2 only
+    def set_led_mode(self, mode):
+        if self.device_type == 'nanoKONTROL2' and mode < 1:
+            self.data[2] = mode
+        return 0
+
+
+    # Get group MIDI channel
+    #   returns: MIDI channel
+    def get_group_channel(self, group):
+        if group < len(control_map[self.device_type]['groups']):
+            group_offset = control_map[self.device_type]['groups'][group]
+            channel_offset = control_map[self.device_type]['group map']['channel']
+            return self.data[group_offset + channel_offset]
+        return 0
+
+
+    # Set group MIDI channel
+    #   chan: MIDI channel
+    def set_group_channel(self, group, chan):
+        if group < len(control_map[self.device_type]['groups']) and chan <= 16:
+            group_offset = control_map[self.device_type]['groups'][group]
+            channel_offset = control_map[self.device_type]['group map']['channel']
+            self.data[group_offset + channel_offset] = chan
+
+
+    # Get control parameter
+    #   group_offset: Offset of group / transport
+    #   control: Control name, e.g. 'button a'
+    #   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
+    #   returns: Parameter value or 0 if parameter not available
+    def get_control_parameter(self, group_offset, control, param):
+        try:
+            control_offset = control_map[self.device_type]['transport map'][control]
+            param_offset = control_map[self.device_type]['param map'][param][0]
+            return self.data[group_offset + control_offset + param_offset]
+        except:
+            return 0
+
+
+    # Set control parameter
+    #   group_offset: Offset of group / transport
+    #   control: Control name, e.g. 'button a'
+    #   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
+    #   value: Parameter value
+    def set_control_parameter(self, group_offset, control, param, value):
+        try:
+            control_offset = control_map[self.device_type]['group map'][control]
+            param_offset = control_map[self.device_type]['param_map'][param][0]
+            param_max = control_map[self.device_type]['param_map'][param][1]
+            if value > param_max:
+                return False
+            self.data[group_offset + control_offset + param_offset] = value
+        except:
             return False
-        data[group_offset + control_offset + param_offset] = value
-    except:
-        return False
-    return True
+        return True
 
 
 
-## JACK ##
-
-@client.set_process_callback
-def process(frames):
-    global ev
-    global midi_chan
-    midi_out.clear_buffer()
-    if ev:
-        midi_out.write_midi_event(0, ev)
-        ev = None
-    
-    # Process incoming messages
-    for offset, indata in midi_in.incoming_midi_events():
-        if len(indata) == 14 and indata[:2] == [0xF0, 0x7E] and indata[3:5] == [0x06, 0x02, 0x42] and indata[6:8] == sysex_device_type:
-            # Device inquiry reply
-            midi_chan = indata[2]
-            spin_midi_chan.set(midi_chan + 1)
-            lbl_info['text'] = "nanoKONTROL v{}.{}".format(indata[13] << 7 + indata[12], indata[11] << 7 + indata[110])
-        elif len(indata) == 3:
-            cmd = indata[0] & 0xF0
-            if cmd == 0x80 or cmd == 0x90 and indata[2] == 0:
-                # Note off
-                pass
-            elif cmd == 0x90:
-                # Note on
-                pass
-            elif cmd == 0xB0:
-                # CC
-                pass
-            elif cmd == 0xE0:
-                # Pitch bend
-                pass
-        elif indata[:10] == [0xF7, 0x42, 0x50, 0x01, midi_chan, echo_id] + sysex_device_type:
-            # Search device reply
-            pass
-        elif len(indata) > 10 and indata[:7] == [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type + [0x00]:
-            # Command list
-            if indata[7:10] == [0x5F, 0x23, 0x00]:
-                # Load data ACK
-                pass
-            elif indata[7:10] == [0x5F, 0x24, 0x00]:
-                # Load data NAK
-                pass
-            elif indata[7:10] == [0x5F, 0x21, 0x00]:
-                # Write completed
-                pass
-            elif indata[7:10] == [0x5F, 0x22, 0x00]:
-                # Write error
-                pass
-        elif indata[7:10] == [0x40, 0x00, 0x02]:
-            # Native mode out
-            pass
-        elif indata[7:10] == [0x40, 0x00, 0x03]:
-            # Native mode in
-            pass
-        elif indata[7:10] == [0x5F, 0x42, 0x00]:
-            # Mode normal
-            pass
-        elif indata[7:10] == [0x5F, 0x42, 0x01]:
-            # Native normal
-            pass
-        
 
 
 ## MIDI messages sent from software to device ##
@@ -1119,17 +362,17 @@ def send_scene_write_request(scene):
     send_command_list([0x1F, 0x11, scene])
 
 
-# Request native mode in (nanoKONTROL 2)
+# Request native mode in (nanoKONTROL2)
 def send_native_mode():
     send_command_list([0x00, 0x00, 0x00])
 
 
-# Request native mode out (nanoKONTROL 2)
+# Request native mode out (nanoKONTROL2)
 def send_native_mode():
     send_command_list([0x00, 0x00, 0x01])
 
 
-# Request mode (nanoKONTROL 2)
+# Request mode (nanoKONTROL2)
 def send_query_mode():
     send_command_list([0x1F, 0x12, 0x00])
 
@@ -1153,25 +396,6 @@ def send_scene_data(data):
 def send_port_detect():
     send_command_list([0x1E, 0x00, echo_id])
 
-
-
-# Activate jack client and get available MIDI ports
-client.activate()
-
-jack_source_ports = []
-jack_dest_ports = []
-
-ports = client.get_ports(is_midi=True, is_output=True)
-ports.remove(midi_out)
-for port in ports:
-    jack_source_ports.append(port.name)
-
-ports = client.get_ports(is_midi=True, is_input=True)
-ports.remove(midi_in)
-for port in ports:
-    jack_dest_ports.append(port.name)
-
-
 ## UI ##
 
 # Handle jack source change
@@ -1191,65 +415,211 @@ def jack_dest_changed(event):
     except Exception as e:
         logging.warning(e)
 
-# Handle MIDI channel manually changed by user (may also be set by device query)
-def midi_chan_changed():
-    global midi_chan
-    midi_chan = int(midi_chan_txt.get()) - 1
 
-
-# Handle device type change (initially support nanoKONTROL 1 & 2)
-def device_type_changed(event):
+# Handle device search request button
+def on_device_type_press():
     global device_type
-    if device_type.get() == 'nanoKONTROL 1':
-        sysex_device_type = [0x00, 0x01, 0x04]
-    elif device_type.get() == 'nanoKONTROL 2':
-        sysex_device_type = [0x00, 0x01, 0x13]
+    device_type.set('-')
+    send_device_search()
 
+
+# Blink each LED
+def test_leds():
+    global ev
+    for led in range(0x29, 0x2F):
+        ev = [0xBF, led, 0x7F]
+        sleep(0.05)
+        ev = [0xBF, led, 0x00]
+        sleep(0.05)
+    for group in range(8):
+        for fn in range(3):
+            led = 0x20 +  0x10 * fn + group
+            ev = [0xBF, led, 0x7F]
+            sleep(0.05)
+            ev = [0xBF, led, 0x00]
+            sleep(0.05)
+
+
+scene_data = scene()
 
 root = tk.Tk()
 root.title("riban nanoKONTROL editor")
 
-ttk.Label(root, text="riban nanoKONTROL editor").grid()
+frame_left = tk.Frame(root, padx=2, pady=2)
+frame_top = tk.Frame(root, padx=2, pady=2)
+frame_controls = tk.Frame(root, padx=2, pady=2)
 
-btn_query = ttk.Button(root, text="Detect", command=send_inquiry)
-btn_query.grid()
+frame_top.grid(row=0, columnspan=2)
+frame_left.grid(row=1, column=0)
+frame_controls.grid(row=1, column=1)
+root.columnconfigure(1, weight=1)
+root.rowconfigure(1, weight=1)
 
-lbl_info = ttk.Label(root, text="-")
-lbl_info.grid()
-
-device_type = tk.StringVar(value='nanoKONTROL 2')
-cmb_device_type = ttk.Combobox(root, textvariable=device_type, state='readonly', values=device_types)
-cmb_device_type.bind('<<ComboboxSelected>>', device_type_changed)
-cmb_device_type.grid()
-
-midi_chan_txt = tk.StringVar(value=1)
-spin_midi_chan = ttk.Spinbox(root, from_=1, to=16, textvariable=midi_chan_txt, state='readonly', command=midi_chan_changed)
-spin_midi_chan.grid()
+ttk.Label(frame_top, text="riban nanoKONTROL editor").grid(columnspan=6)
 
 jack_source = tk.StringVar()
-cmb_jack_source = ttk.Combobox(root, textvariable=jack_source, state='readonly', values=jack_source_ports)
+ttk.Label(frame_top, text="MIDI input: ").grid(row=1, column=0)
+cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
 cmb_jack_source.bind('<<ComboboxSelected>>', jack_source_changed)
-cmb_jack_source.grid()
+cmb_jack_source.grid(row=1, column=1)
 
 jack_dest = tk.StringVar()
-cmb_jack_dest = ttk.Combobox(root, textvariable=jack_dest, state='readonly', values=jack_dest_ports)
+ttk.Label(frame_top, text="MIDI output: ").grid(row=1, column=2)
+cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
 cmb_jack_dest.bind('<<ComboboxSelected>>', jack_dest_changed)
-cmb_jack_dest.grid()
+cmb_jack_dest.grid(row=1, column=3)
 
+device_type = tk.StringVar(value='-')
+ttk.Label(frame_top, text="Device: ").grid(row=1, column=4)
+btn_device_type = ttk.Button(frame_top, textvariable=device_type, command=on_device_type_press)
+btn_device_type.grid(row=1, column=5)
+
+
+ttk.Label(frame_left, text="TRACK").grid(row=0, columnspan=2)
+btn_prev_track = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
+btn_prev_track.grid(row=1, column=0)
+btn_next_track = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
+btn_next_track.grid(row=1, column=1)
+
+ttk.Label(frame_left, text="MARKER").grid(row=2, column=2, columnspan=3)
+btn_cycle = tk.Button(frame_left, width=6, padx=2, pady=2, text="CYCLE")
+btn_cycle.grid(row=3, column=0)
+btn_marker_set = tk.Button(frame_left, width=6, padx=2, pady=2, text="SET")
+btn_marker_set.grid(row=3, column=2)
+btn_marker_prev = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
+btn_marker_prev.grid(row=3, column=3)
+btn_marker_next = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
+btn_marker_next.grid(row=3, column=4)
+
+btn_rew = tk.Button(frame_left, width=6, padx=2, pady=2, text="<<")
+btn_rew.grid(row=4, column=0)
+btn_ff = tk.Button(frame_left, width=6, padx=2, pady=2, text=">>")
+btn_ff.grid(row=4, column=1)
+btn_stop = tk.Button(frame_left, width=6, padx=2, pady=2, text="STOP")
+btn_stop.grid(row=4, column=2)
+btn_play = tk.Button(frame_left, width=6, padx=2, pady=2, text="PLAY")
+btn_play.grid(row=4, column=3)
+btn_rec = tk.Button(frame_left, width=6, padx=2, pady=2, text="REC")
+btn_rec.grid(row=4, column=4)
 
 for group in range(8):
-    root.columnconfigure(group * 2 + 2, weight=2)
-    lbl = ttk.Label(root, text = "{}".format(group + 1))
-    lbl.grid(row=10, column = group * 2 + 1, columnspan=2)
-    slider = ttk.Scale(root, orient="horizontal", from_=0, to=127, value=64)
-    slider.grid(row = 11, column = group * 2 + 2)
-    slider = ttk.Scale(root, orient="vertical", from_=127, to=0, value=100)
-    slider.grid(row = 12, column = group * 2 + 2, rowspan=3, sticky='ns')
-    btn = ttk.Button(root, text = "S")
-    btn.grid(row = 12, column=group * 2 + 1, weight=1)
-    btn = ttk.Button(root, text="M")
-    btn.grid(row = 13, column=group * 2 + 1, weight=1)
-    btn = ttk.Button(root, text="R")
-    btn.grid(row = 14, column = group * 2 + 1, weight=1)
+    frame_controls.columnconfigure(group * 2 + 1, weight=1)
+    lbl = ttk.Label(frame_controls, text = "{}".format(group + 1))
+    lbl.grid(row=0, column = group * 2 + 1)
+    slider = ttk.Scale(frame_controls, orient="horizontal", from_=0, to=127, value=64)
+    slider.grid(row = 1, column = group * 2 + 1)
+    slider = ttk.Scale(frame_controls, orient="vertical", from_=127, to=0, value=100)
+    slider.grid(row = 2, column = group * 2 + 1, rowspan=3, sticky='ns')
+    btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text = "S")
+    btn.grid(row = 2, column=group * 2)
+    btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="M")
+    btn.grid(row = 3, column=group * 2)
+    btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="R")
+    btn.grid(row = 4, column = group * 2)
+
+
+##########
+## JACK ##
+##########
+
+@client.set_process_callback
+def process(frames):
+    global ev
+    global midi_chan
+    global device_type
+
+    midi_out.clear_buffer()
+    if ev:
+        midi_out.write_midi_event(0, ev)
+        ev = None
+    
+    # Process incoming messages
+    for offset, indata in midi_in.incoming_midi_events():
+        data = struct.unpack('{}B'.format(len(indata)), indata)
+        str = ""
+        for i in data:
+            str += hex(i) + " "
+        print(str)
+
+        if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42) and data[6:8] == sysex_device_type:
+            # Device inquiry reply
+            midi_chan = data[2]
+            major = data[12] + (data[13 << 7])
+            minor = data[10] + (data[11] << 7)
+        elif data[:4] == (0xF0, 0x42, 0x50, 0x01) and data[5] == echo_id:
+            # Search device reply
+            midi_chan = data[4]
+            family_id = data[6] + (data[7] << 7)
+            member_id = data[8] + (data[9] << 7)
+            minor = data[10]  + (data[11]<< 7)
+            major = data[12] + (data[13]<< 7)
+            if family_id == 147:
+                device_type.set('nanoKONTROL2')
+            elif family_id == 132:
+                device_type.set('nanoKONTROL1')
+        elif len(data) == 3:
+            cmd = data[0] & 0xF0
+            if cmd == 0x80 or cmd == 0x90 and data[2] == 0:
+                # Note off
+                pass
+            elif cmd == 0x90:
+                # Note on
+                pass
+            elif cmd == 0xB0:
+                # CC
+                pass
+            elif cmd == 0xE0:
+                # Pitch bend
+                pass
+        elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type + [0x00]:
+            # Command list
+            if data[7:10] == [0x5F, 0x23, 0x00]:
+                # Load data ACK
+                pass
+            elif data[7:10] == [0x5F, 0x24, 0x00]:
+                # Load data NAK
+                pass
+            elif data[7:10] == [0x5F, 0x21, 0x00]:
+                # Write completed
+                pass
+            elif data[7:10] == [0x5F, 0x22, 0x00]:
+                # Write error
+                pass
+        elif data[7:10] == [0x40, 0x00, 0x02]:
+            # Native mode out
+            pass
+        elif data[7:10] == [0x40, 0x00, 0x03]:
+            # Native mode in
+            pass
+        elif data[7:10] == [0x5F, 0x42, 0x00]:
+            # Mode normal
+            pass
+        elif data[7:10] == [0x5F, 0x42, 0x01]:
+            # Native normal
+            pass
+        
+
+# Refresh jack MIDI ports
+@client.set_graph_order_callback
+def refresh_jack_ports():
+    global cmb_jack_source
+    global cmb_jack_dest
+
+    jack_source_ports = []
+    ports = client.get_ports(is_midi=True, is_output=True)
+    ports.remove(midi_out)
+    for port in ports:
+        jack_source_ports.append(port.name)
+    cmb_jack_source['values'] = jack_source_ports
+
+    jack_dest_ports = []
+    ports = client.get_ports(is_midi=True, is_input=True)
+    ports.remove(midi_in)
+    for port in ports:
+        jack_dest_ports.append(port.name)
+    cmb_jack_dest['values'] = jack_dest_ports
+
+# Activate jack client and get available MIDI ports
+client.activate()
 
 root.mainloop()
