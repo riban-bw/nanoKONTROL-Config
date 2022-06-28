@@ -463,6 +463,11 @@ cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='reado
 cmb_jack_source.bind('<<ComboboxSelected>>', jack_source_changed)
 cmb_jack_source.grid(row=1, column=1)
 
+txt_midi_in = tk.StringVar()
+lbl_midi_in = ttk.Label(frame_top, textvariable=txt_midi_in, anchor='w', background='#aacf55')
+lbl_midi_in.grid(row=2, column=0, columnspan=2, sticky='ew')
+
+
 jack_dest = tk.StringVar()
 ttk.Label(frame_top, text="MIDI output: ").grid(row=1, column=2)
 cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
@@ -538,8 +543,9 @@ def process(frames):
         data = struct.unpack('{}B'.format(len(indata)), indata)
         str = ""
         for i in data:
-            str += hex(i) + " "
-        print(str)
+            str += "{:02X} ".format(i)
+        #print(str)
+        txt_midi_in.set(str)
 
         if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42) and data[6:8] == sysex_device_type:
             # Device inquiry reply
