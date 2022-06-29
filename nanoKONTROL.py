@@ -516,23 +516,38 @@ def show_editor(ctrl, group=None):
 
 
 def on_editor_assign(*args):
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'assign', editor_assign.get())
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'assign', editor_assign.get())
+    except:
+        pass
 
 
 def on_editor_behaviour(*args):
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
+    except:
+        pass
 
 
 def on_editor_cmd(*args):
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cc/note', editor_cmd.get())
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cc/note', editor_cmd.get())
+    except:
+        pass
 
 
 def on_editor_min(*args):
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'off', editor_min.get())
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'off', editor_min.get())
+    except:
+        pass
 
 
 def on_editor_max(*args):
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'on', editor_max.get())
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'on', editor_max.get())
+    except:
+        pass
 
 
 root = tk.Tk()
