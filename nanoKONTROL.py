@@ -6,22 +6,43 @@
 # Dependencies: tkinter, jack, PIL, ImageTk
 
 import struct
-import jack
+try:
+    import jack
+except:
+    logging.warning("Cannot import jack")
+try:
+    import alsa_midi 
+except:
+    logging.warning("Cannot import alsa-midi")
 import tkinter as tk
 from tkinter import ttk
 import logging
 from time import sleep
 from PIL import ImageTk, Image
+from threading import Thread
 
-midi_chan = 0 # Global MIDI channel (0 based)
+global_midi_chan = 0 # Global MIDI channel (0 based)
 sysex_device_type = {
     'nanoKONTROL1': [0x00, 0x01, 0x04, 0x00],
     'nanoKONTROL2': [0x00, 0x01, 0x13, 0x00]
 }
-client = jack.Client("riban-nanoKonfig")
-midi_in = client.midi_inports.register('in')
-midi_out = client.midi_outports.register('out')
-ev = []
+
+jack_client = None
+try:
+    jack_client = jack.Client('riban-nanoKonfig')
+    midi_in = jack_client.midi_inports.register('in')
+    midi_out = jack_client.midi_outports.register('out')
+except:
+    logging.warning('Cannot initalise jack client')
+
+alsa_client = None
+try:
+    alsa_client = alsa_midi.SequencerClient('riban-nanoKonfig')
+    alsa_midi_in = alsa_client.create_port('in', caps=alsa_midi.WRITE_PORT)
+    alsa_midi_out = alsa_client.create_port('out', caps=alsa_midi.READ_PORT)
+except:
+    logging.warning('Cannot initialise alsa client')
+ev = None
 echo_id = 0x00
 
 assign_options = ['Disabled', 'CC', 'Note']
@@ -364,24 +385,31 @@ scene_data = scene()
 
 ## MIDI messages sent from software to device ##
 
+def send_midi(msg):
+    global ev
+    try:
+        alsa_client.event_output(alsa_midi.SysExEvent(bytes(msg)), port=alsa_midi_out)
+        alsa_client.drain_output()
+    except:
+        pass # ALSA failed but let's try JACk as well
+    ev = msg.copy()
+
+
 # Send Inquiry Message Request
 def send_inquiry():
-    global ev
-    ev = [0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7]
+    send_midi([0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7])
 
 
 # Send device search request
 def send_device_search():
-    global ev
-    ev = [0xF0, 0x42, 0x50, 0x00, echo_id, 0xF7]
+    send_midi([0xF0, 0x42, 0x50, 0x00, echo_id, 0xF7])
 
 
 # Send a command list message
 #   data: List containing the message payload
 def send_command_list(data):
-    global ev
     try:
-        ev = [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type[scene_data.device_type] + data + [0xF7]
+        send_midi([0xF0, 0x42, 0x40 | global_midi_chan] + sysex_device_type[scene_data.device_type] + data + [0xF7])
     except Exception as e:
         logging.warning(e)
 
@@ -464,18 +492,17 @@ def on_device_type_press():
 
 # Blink each LED
 def test_leds():
-    global ev
     for led in range(0x29, 0x2F):
-        ev = [0xBF, led, 0x7F]
+        send_midi([0xBF, led, 0x7F])
         sleep(0.05)
-        ev = [0xBF, led, 0x00]
+        send_midi([0xBF, led, 0x00])
         sleep(0.05)
     for group in range(8):
         for fn in range(3):
             led = 0x20 +  0x10 * fn + group
-            ev = [0xBF, led, 0x7F]
+            send_midi([0xBF, led, 0x7F])
             sleep(0.05)
-            ev = [0xBF, led, 0x00]
+            send_midi([0xBF, led, 0x00])
             sleep(0.05)
 
 
@@ -745,120 +772,139 @@ def set_device_type(type):
         canvas.itemconfigure(device_image, image=img2, state=tk.NORMAL)
 
 
+def handle_midi_input(indata):
+    global global_midi_chan
+    data = struct.unpack('{}B'.format(len(indata)), indata)
+    str = "[{}] ".format(len(data))
+    for i in data:
+        str += "{:02X} ".format(i)
+    #print(str)
+    txt_midi_in.set(str)
+
+    if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42):
+        # Device inquiry reply
+        global_midi_chan = data[2]
+        major = data[12] + (data[13 << 7])
+        minor = data[10] + (data[11] << 7)
+    elif data[:4] == (0xF0, 0x42, 0x50, 0x01) and data[5] == echo_id:
+        # Search device reply
+        global_midi_chan = data[4]
+        family_id = data[6] + (data[7] << 7)
+        member_id = data[8] + (data[9] << 7)
+        minor = data[10]  + (data[11]<< 7)
+        major = data[12] + (data[13]<< 7)
+        if family_id == 132:
+            set_device_type('nanoKONTROL1')
+        elif family_id == 147:
+            set_device_type('nanoKONTROL2')
+    elif len(data) == 3:
+        cmd = data[0] & 0xF0
+        if cmd == 0x80 or cmd == 0x90 and data[2] == 0:
+            # Note off
+            pass
+        elif cmd == 0x90:
+            # Note on
+            pass
+        elif cmd == 0xB0:
+            # CC
+            pass
+        elif cmd == 0xE0:
+            # Pitch bend
+            pass
+    elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | global_midi_chan] + sysex_device_type[scene_data.device_type]:
+        # Command list
+        if data[7:13] == [0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40]:
+            # nanoKONTROL2 data dump
+            scene_data.set_data(data[13:-1])
+        elif data[7:13] == [0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40]:
+            # nanoKONTROL1 data dump
+            scene_data.set_data(data[13:-1])
+        elif data[7:10] == [0x5F, 0x23, 0x00]:
+            # Load data ACK
+            #TODO: Indicate successful reception of data
+            pass
+        elif data[7:10] == [0x5F, 0x24, 0x00]:
+            # Load data NAK
+            #TODO: Indicate failed reception of data
+            pass
+        elif data[7:10] == [0x5F, 0x21, 0x00]:
+            # Write completed
+            #TODO: Indicate successful data write
+            pass
+        elif data[7:10] == [0x5F, 0x22, 0x00]:
+            # Write error
+            #TODO: Indicate failed data write
+            pass
+    elif data[7:10] == [0x40, 0x00, 0x02]:
+        # Native mode out
+        pass
+    elif data[7:10] == [0x40, 0x00, 0x03]:
+        # Native mode in
+        pass
+    elif data[7:10] == [0x5F, 0x42, 0x00]:
+        # Normal mode
+        pass
+    elif data[7:10] == [0x5F, 0x42, 0x01]:
+        # Native mode
+        pass
+
 ##########
 ## JACK ##
 ##########
+if jack_client:
+    @jack_client.set_process_callback
+    def process(frames):
+        global ev
+        global global_midi_chan
+        global device_type
 
-@client.set_process_callback
-def process(frames):
-    global ev
-    global midi_chan
-    global device_type
-
-    midi_out.clear_buffer()
-    if ev:
-        midi_out.write_midi_event(0, ev)
-        ev = None
-    
-    # Process incoming messages
-    for offset, indata in midi_in.incoming_midi_events():
-        data = struct.unpack('{}B'.format(len(indata)), indata)
-        str = "[{}] ".format(len(data))
-        for i in data:
-            str += "{:02X} ".format(i)
-        #print(str)
-        txt_midi_in.set(str)
-
-        if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42):
-            # Device inquiry reply
-            midi_chan = data[2]
-            major = data[12] + (data[13 << 7])
-            minor = data[10] + (data[11] << 7)
-        elif data[:4] == (0xF0, 0x42, 0x50, 0x01) and data[5] == echo_id:
-            # Search device reply
-            midi_chan = data[4]
-            family_id = data[6] + (data[7] << 7)
-            member_id = data[8] + (data[9] << 7)
-            minor = data[10]  + (data[11]<< 7)
-            major = data[12] + (data[13]<< 7)
-            if family_id == 132:
-                set_device_type('nanoKONTROL1')
-            elif family_id == 147:
-                set_device_type('nanoKONTROL2')
-        elif len(data) == 3:
-            cmd = data[0] & 0xF0
-            if cmd == 0x80 or cmd == 0x90 and data[2] == 0:
-                # Note off
-                pass
-            elif cmd == 0x90:
-                # Note on
-                pass
-            elif cmd == 0xB0:
-                # CC
-                pass
-            elif cmd == 0xE0:
-                # Pitch bend
-                pass
-        elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | midi_chan] + sysex_device_type:
-            # Command list
-            if data[7:13] == [0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40]:
-                # nanoKONTROL2 data dump
-                scene_data.set_data(data[13:-1])
-            elif data[7:13] == [0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40]:
-                # nanoKONTROL1 data dump
-                scene_data.set_data(data[13:-1])
-            elif data[7:10] == [0x5F, 0x23, 0x00]:
-                # Load data ACK
-                #TODO: Indicate successful reception of data
-                pass
-            elif data[7:10] == [0x5F, 0x24, 0x00]:
-                # Load data NAK
-                #TODO: Indicate failed reception of data
-                pass
-            elif data[7:10] == [0x5F, 0x21, 0x00]:
-                # Write completed
-                #TODO: Indicate successful data write
-                pass
-            elif data[7:10] == [0x5F, 0x22, 0x00]:
-                # Write error
-                #TODO: Indicate failed data write
-                pass
-        elif data[7:10] == [0x40, 0x00, 0x02]:
-            # Native mode out
-            pass
-        elif data[7:10] == [0x40, 0x00, 0x03]:
-            # Native mode in
-            pass
-        elif data[7:10] == [0x5F, 0x42, 0x00]:
-            # Normal mode
-            pass
-        elif data[7:10] == [0x5F, 0x42, 0x01]:
-            # Native mode
-            pass
+        midi_out.clear_buffer()
+        if ev:
+            midi_out.write_midi_event(0, ev)
+            ev = None
         
+        # Process incoming messages
+        for offset, indata in midi_in.incoming_midi_events():
+            handle_midi_input(indata)
+            
 
-# Refresh jack MIDI ports
-@client.set_graph_order_callback
-def refresh_jack_ports():
-    global cmb_jack_source
-    global cmb_jack_dest
+    # Refresh jack MIDI ports
+    @jack_client.set_graph_order_callback
+    def refresh_jack_ports():
+        global cmb_jack_source
+        global cmb_jack_dest
 
-    jack_source_ports = []
-    ports = client.get_ports(is_midi=True, is_output=True)
-    ports.remove(midi_out)
-    for port in ports:
-        jack_source_ports.append(port.name)
-    cmb_jack_source['values'] = jack_source_ports
+        jack_source_ports = []
+        ports = jack_client.get_ports(is_midi=True, is_output=True)
+        ports.remove(midi_out)
+        for port in ports:
+            jack_source_ports.append(port.name)
+        cmb_jack_source['values'] = jack_source_ports
 
-    jack_dest_ports = []
-    ports = client.get_ports(is_midi=True, is_input=True)
-    ports.remove(midi_in)
-    for port in ports:
-        jack_dest_ports.append(port.name)
-    cmb_jack_dest['values'] = jack_dest_ports
+        jack_dest_ports = []
+        ports = jack_client.get_ports(is_midi=True, is_input=True)
+        ports.remove(midi_in)
+        for port in ports:
+            jack_dest_ports.append(port.name)
+        cmb_jack_dest['values'] = jack_dest_ports
 
-# Activate jack client and get available MIDI ports
-client.activate()
+    # Activate jack client and get available MIDI ports
+    jack_client.activate()
+
+# ALSA MIDI input 
+def alsa_midi_in_thread():
+    while True:
+        event = alsa_client.event_input()
+        if event.type == alsa_midi.EventType.SYSEX:
+            handle_midi_input(event.data)
+        print(repr(event))
+
+
+if alsa_client:
+    alsa_thread = Thread(target=alsa_midi_in_thread, args=())
+    alsa_thread.name = "alsa_in"
+    alsa_thread.daemon = True
+    alsa_thread.start()
 
 set_device_type('nanoKONTROL2')
 show_editor('slider', 0)

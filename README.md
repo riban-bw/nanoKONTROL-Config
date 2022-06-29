@@ -16,11 +16,16 @@ Click the "Write Scene" button to save the scene to the nanoKONTROL's internal p
 
 The application is written in Python3 and tested on GNU/Linux. It should run on any platform that can meet the following dependancies:
 
-- jack
+- jack (for JACK MIDI interface)
+- alsa-midi (for ALSA MIDI interface)
 - tkinter
 - PIL
 - PIL Image
 
 On a DEBIAN based system the following may install the required Python modules:
 
-`apt install python3-jack-client python3-tk python3-pil python3-pil-imagetk`
+`apt install python3-jack-client python3-tk python3-pil python3-pil.imagetk`
+
+To install alsa-midi:
+
+`pip3 install alsa-midi`
