@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk
 import logging
 from time import sleep
-from tooltip import CreateToolTip
+from PIL import ImageTk, Image
 
 midi_chan = 0 # MIDI channel (0 based)
 sysex_device_type = {
@@ -43,7 +43,7 @@ control_map = {
             'transport behaviour': [5, 1]
         },
         'group map': {
-            'chan': 0,
+            'channel': 0,
             'slider': 1,
             'knob': 5,
             'button_a': 9,
@@ -356,6 +356,7 @@ class scene:
             self.get_control_parameter(group_offset, parts[0], 'on')
         )
 
+scene_data = scene()
 
 ## MIDI messages sent from software to device ##
 
@@ -481,10 +482,12 @@ def assert_editor():
     scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cc/note', editor_cmd.get())
     scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'off', editor_min.get())
     scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'on', editor_max.get())
-    editor.destroy()
 
 
-def show_editor(event):
+# Show the control editor
+#   ctrl: Name of the control to edit
+#   group: Control group or None (default) for transport controls
+def show_editor(ctrl, group=None):
     global editor_group_offset
     global editor_assign
     global editor_behaviour
@@ -492,58 +495,42 @@ def show_editor(event):
     global editor_min
     global editor_max
     global editor_ctrl
-    global editor
+    global rb_editor_note
+    global rb_editor_momentary
+    global rb_editor_toggle
+    global lbl_editor_min
+    global lbl_editor_max
 
-    editor = tk.Toplevel()
-    editor.wm_title("Configuration Editor")
-
-    ctrl = ctrl_map[event.widget.winfo_id()]
-    editor_ctrl = ctrl['control']
+    editor_ctrl = ctrl
     is_button = editor_ctrl not in ('knob', 'slider')
-    if 'group' in ctrl:
-        editor_group_offset = control_map[scene_data.device_type]['groups'][ctrl['group']]
-    else:
+
+    if group is None:
         editor_group_offset = control_map[scene_data.device_type]['transport']
-
-    tk.Label(editor, text=ctrl['title']).grid(row=0, column=0, columnspan=3)        
-
-    tk.Radiobutton(editor, text="Disabled", variable=editor_assign, value=0).grid(row=1, column=0, sticky='w')
-    tk.Radiobutton(editor, text="CC", variable=editor_assign, value=1).grid(row=1, column=1, sticky='w')
-    if is_button:
-        tk.Radiobutton(editor, text="Note", variable=editor_assign, value=2).grid(row=1, column=2, sticky='w')
-    editor_assign.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'assign'))
+        editor_title.set('{}'.format(ctrl))
+    elif group < len(control_map[scene_data.device_type]['groups']):
+        editor_group_offset = control_map[scene_data.device_type]['groups'][group]
+        editor_title.set('{} {}'.format(ctrl, group + 1))
 
     if is_button:
+        rb_editor_note.grid()
         editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
-        tk.Radiobutton(editor, text="Momentary", variable=editor_behaviour, value=0).grid(row=2, column=0, sticky='w')
-        tk.Radiobutton(editor, text="Toggle", variable=editor_behaviour, value=1).grid(row=2, column=1, sticky='w')
+        rb_editor_momentary.grid()
+        rb_editor_toggle.grid()
+        lbl_editor_min['text'] = "Off"
+        lbl_editor_max['text'] = "On"
+    else:
+        rb_editor_note.grid_remove()
+        rb_editor_momentary.grid_remove()
+        rb_editor_toggle.grid_remove()
+        lbl_editor_min['text'] = "Min"
+        lbl_editor_max['text'] = "Max"
 
+    editor_assign.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'assign'))
     editor_cmd.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'cc/note'))
-    tk.Label(editor, text="CC").grid(row=3, column=0, sticky='w')
-    tk.Spinbox(editor, from_=0, to=127, textvariable=editor_cmd).grid(row=3, column=1, sticky='w')
-
     editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'off'))
-    if is_button:
-        tk.Label(editor, text="Off").grid(row=4, column=0, sticky='w')
-    else:
-        tk.Label(editor, text="Min").grid(row=4, column=0, sticky='w')
-    tk.Spinbox(editor, from_=0, to=127, textvariable=editor_min).grid(row=4, column=1, sticky='w')
-
     editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'on'))
-    if is_button:
-        tk.Label(editor, text="On").grid(row=5, column=0, sticky='w')
-    else:
-        tk.Label(editor, text="Max").grid(row=5, column=0, sticky='w')
-    tk.Spinbox(editor, from_=0, to=127, textvariable=editor_max).grid(row=5, column=1, sticky='w')
-
-    ttk.Button(editor, text="Cancel", command=editor.destroy).grid(row=6, column=0, sticky='w')
-    ttk.Button(editor, text="OK", command=assert_editor).grid(row=6, column=1, sticky='w')
-    
-
-    editor.grab_set()
 
 
-scene_data = scene()
 
 root = tk.Tk()
 root.title("riban nanoKONTROL editor")
@@ -557,15 +544,15 @@ editor_group_offset = 0
 editor_ctrl = ''
 
 
-frame_left = tk.Frame(root, padx=2, pady=2)
 frame_top = tk.Frame(root, padx=2, pady=2)
-frame_controls = tk.Frame(root, padx=2, pady=2)
+frame_editor = tk.Frame(root, padx=2, pady=2)
 
-frame_top.grid(row=0, columnspan=2)
-frame_left.grid(row=1, column=0)
-frame_controls.grid(row=1, column=1)
-root.columnconfigure(1, weight=1)
+frame_top.grid(row=0, columnspan=2, sticky='n')
+frame_editor.grid(row=1, column=1, sticky='nw')
+root.columnconfigure(0, weight=1)
 root.rowconfigure(1, weight=1)
+
+## Top frame ##
 
 ttk.Label(frame_top, text="riban nanoKONTROL editor").grid(columnspan=6)
 
@@ -578,7 +565,6 @@ cmb_jack_source.grid(row=1, column=1)
 txt_midi_in = tk.StringVar()
 lbl_midi_in = ttk.Label(frame_top, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=20)
 lbl_midi_in.grid(row=2, column=0, columnspan=2, sticky='ew')
-
 
 jack_dest = tk.StringVar()
 ttk.Label(frame_top, text="MIDI output: ").grid(row=1, column=2)
@@ -603,158 +589,127 @@ btn_write_scene.grid(row=2, column=7)
 btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
 btn_test_leds.grid(row=1, column=7)
 
-lbl_track = ttk.Label(frame_left, text="TRACK")
-lbl_track.grid(row=0, columnspan=2)
+## Control editor frame ##
 
-btn_prev_track = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
-btn_prev_track.grid(row=1, column=0)
-CreateToolTip(btn_prev_track, scene_data, 'prev_track')
-ctrl_map[btn_prev_track.winfo_id()] = {'title': 'Previous Track', 'control':'prev_track'}
-btn_prev_track.bind('<Button-1>', show_editor)
+editor_title = tk.StringVar()
 
-btn_next_track = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
-btn_next_track.grid(row=1, column=1)
-CreateToolTip(btn_next_track, scene_data, 'next_track')
-ctrl_map[btn_next_track.winfo_id()] = {'title': 'Next Track', 'control':'next_track'}
-btn_next_track.bind('<Button-1>', show_editor)
+tk.Label(frame_editor, textvariable=editor_title).grid(row=0, column=0, columnspan=3)
+tk.Radiobutton(frame_editor, text="Disabled", variable=editor_assign, value=0).grid(row=1, column=0, sticky='w')
+tk.Radiobutton(frame_editor, text="CC", variable=editor_assign, value=1).grid(row=1, column=1, sticky='w')
+rb_editor_note = tk.Radiobutton(frame_editor, text="Note", variable=editor_assign, value=2)
+rb_editor_note.grid(row=1, column=2, sticky='w')
+rb_editor_momentary = tk.Radiobutton(frame_editor, text="Momentary", variable=editor_behaviour, value=0)
+rb_editor_momentary.grid(row=2, column=0, sticky='w')
+rb_editor_toggle = tk.Radiobutton(frame_editor, text="Toggle", variable=editor_behaviour, value=1)
+rb_editor_toggle.grid(row=2, column=1, sticky='w')
+tk.Label(frame_editor, text="CC").grid(row=3, column=0, sticky='w')
+tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3).grid(row=3, column=1, sticky='w')
+lbl_editor_min = tk.Label(frame_editor, text="Off")
+lbl_editor_min.grid(row=4, column=0, sticky='w')
+tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3).grid(row=4, column=1, sticky='w')
+lbl_editor_max = tk.Label(frame_editor, text="On")
+lbl_editor_max.grid(row=5, column=0, sticky='w')
+tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3).grid(row=5, column=1, sticky='w')
+ttk.Button(frame_editor, text="OK", command=assert_editor).grid(row=6, column=1, sticky='w')
+    
 
-lbl_marker = ttk.Label(frame_left, text="MARKER")
-lbl_marker.grid(row=2, column=2, columnspan=3)
+# Handle mouse click on image
+#   event: Mouse event
+def on_canvas_click(event):
+    #print(event.x, event.y)
 
-btn_cycle = tk.Button(frame_left, width=6, padx=2, pady=2, text="CYCLE")
-btn_cycle.grid(row=3, column=0)
-CreateToolTip(btn_cycle, scene_data, 'cycle')
-ctrl_map[btn_cycle.winfo_id()] = {'title': 'Cycle', 'control':'cycle'}
-btn_cycle.bind('<Button-1>', show_editor)
+    if scene_data.device_type == 'nanoKONTROL1':
+        # x coord range as ratio of image size for each group (0..7, 8=transport)
+        group_coords = [(0.20,0.28), (0.29,0.36), (0.38,0.45), (0.47,0.54), (0.55,0.62), (0.64,0.71), (0.72,0.79), (0.81,0.88), (0.89,0.97), (0.02,0.19)]
+        # relative coords as ration of image size of each control within group from group offset (y coord is absolute)
+        group_ctrl_coords = {
+            'knob': [0.03, 0.11, 0.08, 0.2],
+            'slider': [0.04, 0.47, 0.07, 0.75],
+            'solo': [0.00, 0.44, 0.03, 0.54],
+            'mute': [0.00, 0.70, 0.03, 0.80]
+        }
+        transport_ctrl_coords = {
+            'rew': [0.03, 0.52, 0.08, 0.61],
+            'play': [0.08, 0.52, 0.13, 0.61],
+            'ff': [0.14, 0.52, 0.19, 0.61],
+            'cycle': [0.03, 0.66, 0.08, 0.74],
+            'stop': [0.08, 0.66, 0.13, 0.74],
+            'rec': [0.14, 0.66, 0.19, 0.74]
+        }
+    elif scene_data.device_type == 'nanoKONTROL2':
+        # x coord range as ratio of image size for each group (0..7, 8=transport)
+        group_coords = [(0.30,0.37), (0.39,0.45), (0.47,0.54), (0.56,0.63), (0.64,0.71), (0.73,0.80), (0.81,0.88), (0.90,0.96), (0.04, 0.27)]
+        # relative coords as ration of image size of each control within group from group offset (y coord is absolute)
+        group_ctrl_coords = {
+            'knob': [0.03, 0.11, 0.07, 0.26],
+            'slider': [0.04, 0.4, 0.06, 0.74],
+            'solo': [0.00, 0.39, 0.03, 0.48],
+            'mute': [0.00, 0.59, 0.03, 0.67],
+            'rec': [0.00, 0.76, 0.03, 0.86],
+        }
+        transport_ctrl_coords = {
+            'prev_track': [0.04, 0.45, 0.07, 0.50],
+            'next_track': [0.09, 0.45, 0.12, 0.50],
+            'cycle': [0.04, 0.60, 0.07, 0.66],
+            'set_marker': [0.14, 0.60, 0.17, 0.66],
+            'prev_marker': [0.19, 0.60, 0.22, 0.66],
+            'next_marker': [0.24, 0.60, 0.27, 0.66],
+            'rew': [0.04, 0.76, 0.07, 0.88],
+            'ff': [0.09, 0.76, 0.12, 0.88],
+            'stop': [0.14, 0.76, 0.17, 0.88],
+            'play': [0.19, 0.76, 0.22, 0.88],
+            'rec': [0.24, 0.76, 0.27, 0.88],
+        }
+    else:
+        return
+    x = event.x / 800
+    y = event.y / 250
+    group = None
+    for i,coord in enumerate(group_coords):
+        if x > coord[0] and x < coord[1]:
+            group = i
+            group_offset_x = coord[0]
+            break
+    
+    if group is None:
+        return
 
-btn_marker_set = tk.Button(frame_left, width=6, padx=2, pady=2, text="SET")
-btn_marker_set.grid(row=3, column=2)
-CreateToolTip(btn_marker_set, scene_data, 'set_marker')
-ctrl_map[btn_marker_set.winfo_id()] = {'title': 'Set Marker', 'control':'set_marker'}
-btn_marker_set.bind('<Button-1>', show_editor)
+    if group < len(group_coords) - 1:            
+        for ctrl in group_ctrl_coords:
+            if x > group_offset_x + group_ctrl_coords[ctrl][0] and y > group_ctrl_coords[ctrl][1] and x < group_offset_x + group_ctrl_coords[ctrl][2] and y < group_ctrl_coords[ctrl][3]:
+                #print("Clicked on control {} {}".format(ctrl, group + 1))
+                show_editor(ctrl, group)
+    else:
+        for ctrl in transport_ctrl_coords:
+            if x > transport_ctrl_coords[ctrl][0] and y > transport_ctrl_coords[ctrl][1] and x < transport_ctrl_coords[ctrl][2] and y < transport_ctrl_coords[ctrl][3]:
+                #print("Clicked on control {}".format(ctrl))
+                show_editor(ctrl)
 
-btn_marker_prev = tk.Button(frame_left, width=6, padx=2, pady=2, text="<")
-btn_marker_prev.grid(row=3, column=3)
-CreateToolTip(btn_marker_prev, scene_data, 'prev_marker')
-ctrl_map[btn_marker_prev.winfo_id()] = {'title': 'Previous Marker', 'control':'prev_marker'}
-btn_marker_prev.bind('<Button-1>', show_editor)
+## Device image ##
 
-btn_marker_next = tk.Button(frame_left, width=6, padx=2, pady=2, text=">")
-btn_marker_next.grid(row=3, column=4)
-CreateToolTip(btn_marker_next, scene_data, 'next_marker')
-ctrl_map[btn_marker_next.winfo_id()] = {'title': 'Next Marker', 'control':'next_marker'}
-btn_marker_next.bind('<Button-1>', show_editor)
+img1 = ImageTk.PhotoImage(Image.open('nanoKONTROL1.png').resize((800,250), Image.ANTIALIAS))
+img2 = ImageTk.PhotoImage(Image.open('nanoKONTROL2.png').resize((800,250), Image.ANTIALIAS))
+canvas = tk.Canvas(root)
+device_image = canvas.create_image(0, 0, anchor='nw', image=img2)
+root.grid_columnconfigure(0, minsize=800)
+canvas.grid(row=1, column=0, sticky='nsew')
+canvas.bind('<Button-1>', on_canvas_click)
 
-btn_rew = tk.Button(frame_left, width=6, padx=2, pady=2, text="<<")
-btn_rew.grid(row=4, column=0)
-CreateToolTip(btn_rew, scene_data, 'rew')
-ctrl_map[btn_rew.winfo_id()] = {'title': 'Rewind', 'control':'rew'}
-btn_rew.bind('<Button-1>', show_editor)
 
-btn_ff = tk.Button(frame_left, width=6, padx=2, pady=2, text=">>")
-btn_ff.grid(row=4, column=1)
-CreateToolTip(btn_ff, scene_data, 'ff')
-ctrl_map[btn_ff.winfo_id()] = {'title': 'Fast Forward', 'control':'ff'}
-btn_ff.bind('<Button-1>', show_editor)
-
-btn_stop = tk.Button(frame_left, width=6, padx=2, pady=2, text="STOP")
-btn_stop.grid(row=4, column=2)
-CreateToolTip(btn_stop, scene_data, 'stop')
-ctrl_map[btn_stop.winfo_id()] = {'title': 'Stop', 'control':'stop'}
-btn_stop.bind('<Button-1>', show_editor)
-
-btn_play = tk.Button(frame_left, width=6, padx=2, pady=2, text="PLAY")
-btn_play.grid(row=4, column=3)
-CreateToolTip(btn_play, scene_data, 'play')
-ctrl_map[btn_play.winfo_id()] = {'title': 'Play', 'control':'play'}
-btn_play.bind('<Button-1>', show_editor)
-
-btn_rec = tk.Button(frame_left, width=6, padx=2, pady=2, text="REC")
-btn_rec.grid(row=4, column=4)
-CreateToolTip(btn_rec, scene_data, 'rec')
-ctrl_map[btn_rec.winfo_id()] = {'title': 'Record', 'control':'rec'}
-btn_rec.bind('<Button-1>', show_editor)
-
-group_controls = {}
-for group in range(9):
-    group_controls[group] = {}
-    frame_controls.columnconfigure(group * 2 + 1, weight=1)
-    lbl = ttk.Label(frame_controls, text = "{}".format(group  + 1))
-    lbl.grid(row=0, column = group * 2 + 1)
-    group_controls[group]['title'] = lbl
-    slider = ttk.Scale(frame_controls, orient="horizontal", from_=0, to=127, value=64)
-    slider.grid(row = 1, column = group * 2 + 1)
-    CreateToolTip(slider, scene_data, 'knob {}'.format(group))
-    ctrl_map[slider.winfo_id()] = {'title': 'Knob {}'.format(group + 1), 'group':group, 'control':'knob'}
-    slider.bind('<Button-1>', show_editor)
-    group_controls[group]['knob'] = slider
-    slider = ttk.Scale(frame_controls, orient="vertical", from_=127, to=0, value=100)
-    slider.grid(row = 2, column = group * 2 + 1, rowspan=3, sticky='ns')
-    CreateToolTip(slider, scene_data, 'slider {}'.format(group))
-    ctrl_map[slider.winfo_id()] = {'title': 'Slider {}'.format(group + 1), 'group':group, 'control':'slider'}
-    slider.bind('<Button-1>', show_editor)
-    group_controls[group]['slider'] = slider
-    btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text = "S")
-    btn.grid(row = 2, column=group * 2)
-    CreateToolTip(btn, scene_data, 'solo {}'.format(group))
-    ctrl_map[btn.winfo_id()] = {'title': 'Solo {}'.format(group + 1), 'group':group, 'control':'solo'}
-    btn.bind('<Button-1>', show_editor)
-    group_controls[group]['solo'] = btn
-    btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="M")
-    btn.grid(row = 3, column=group * 2)
-    CreateToolTip(btn, scene_data, 'mute {}'.format(group))
-    ctrl_map[btn.winfo_id()] = {'title': 'Mute {}'.format(group + 1), 'group':group, 'control':'mute'}
-    group_controls[group]['mute'] = btn
-    btn.bind('<Button-1>', show_editor)
-    btn = tk.Button(frame_controls, width=2, padx=2, pady=2, text="R")
-    btn.grid(row = 4, column = group * 2)
-    ctrl_map[btn.winfo_id()] = {'title': 'Prime {}'.format(group + 1), 'group':group, 'control':'prime'}
-    CreateToolTip(btn, scene_data, 'prime {}'.format(group))
-    group_controls[group]['prime'] = btn
-    btn.bind('<Button-1>', show_editor)
- 
-
+# Set the device type
+#   type: Device type ['nanoKONTROL1', 'nanoKONTROL2']
 def set_device_type(type):
     device_type.set(type)
     scene_data.device_type = type
     scene_data.reset_data()
     if type == 'nanoKONTROL1':
-        for group in range(9):
-            group_controls[group]['prime'].grid_remove()
-        group_controls[8]['title'].grid()
-        group_controls[8]['knob'].grid()
-        group_controls[8]['slider'].grid()
-        group_controls[8]['solo'].grid()
-        group_controls[8]['mute'].grid()
         btn_test_leds.grid_remove()
-        btn_marker_next.grid_remove()
-        btn_marker_prev.grid_remove()
-        btn_marker_set.grid_remove()
-        btn_next_track.grid_remove()
-        btn_prev_track.grid_remove()
-        lbl_track.grid_remove()
-        lbl_marker.grid_remove()
+        canvas.itemconfigure(device_image, image=img1, state=tk.NORMAL)
 
     elif type == 'nanoKONTROL2':
-        for group in range(8):
-            group_controls[group]['prime'].grid()
-        group_controls[8]['title'].grid_remove()
-        group_controls[8]['knob'].grid_remove()
-        group_controls[8]['slider'].grid_remove()
-        group_controls[8]['solo'].grid_remove()
-        group_controls[8]['mute'].grid_remove()
-        group_controls[8]['prime'].grid_remove()
         btn_test_leds.grid()
         btn_test_leds.grid()
-        btn_marker_next.grid()
-        btn_marker_prev.grid()
-        btn_marker_set.grid()
-        btn_next_track.grid()
-        btn_prev_track.grid()
-        lbl_track.grid()
-        lbl_marker.grid()
-
-
+        canvas.itemconfigure(device_image, image=img2, state=tk.NORMAL)
 
 
 ##########
