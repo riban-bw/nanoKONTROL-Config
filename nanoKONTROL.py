@@ -125,10 +125,10 @@ class scene:
     # Reset scene data to default values
     def reset_data(self):
         if self.device_type == "nanoKONTROL1":
-            self.data = [0] * 259 # 7 * 37 (3 unused bytes)
+            self.data = [0] * 256
             self.set_scene_name("scene 0")
         elif self.device_type == "nanoKONTROL2":
-            self.data = [0] * 343 # 7 * 39 (4 unused bytes)
+            self.data = [0] * 339
             self.set_control_mode(0)
             self.set_led_mode(0)
         self.set_global_channel(15)
@@ -176,22 +176,22 @@ class scene:
 
     # Get data in MIDI sysex format
     # Convert Korg 8-bit data to 7-bit MIDI data
-    # nanoKONTROL1/2 have 256/339 bytes of data 
+    # nanoKONTROL1 has 256 bytes of data which gives 36 blocks of 7 bytes plus 4 extra bytes
+    # nanoKONTROL2 has 339 bytes of data which gives 48 blocks of 7 bytes plus 3 extra bytes
+    # Each block is converted to 8 MIDI bytes (first byte represents most significant bit of subsequent 7 bytes)
+    # Remaining 3 or 4 bytes are sent similarly but not padded to full block of 8, i.e. nanoKONTROL1 MIDI has 36 * 8 + 1 + 4 bytes in payload
     #   data: 8-bit Korg data
     #   returns: List containing sysex data
     def get_midi_data(self):
         sysex = []
-        dest_offset = 0
-        for offset in range(0, len(self.data) - 7, 7):
+        for offset in range(0, len(self.data), 7):
+            block = self.data[offset:offset+7]
             b0 = 0
+            for b in range(len(block)):
+                b0 |= ((block[b] & 0x80) >> (7 - b))
             sysex.append(b0)
-            base_word = dest_offset
-            dest_offset += 1
-            for word in range(7):
-                b0 |= (self.data[offset + word] & 0x80) >> (7 - word)
+            for word in range(len(block)):
                 sysex.append(self.data[offset + word] & 0x7F)
-                dest_offset += 1
-            sysex[base_word] = b0
         return sysex
 
 
@@ -200,11 +200,10 @@ class scene:
     # Raw data: 1st byte holds bit-7 of subsequent bytes, next 7 bytes hold bits 0..7 of each byte
     #   data: raw 7-bit MIDI data (multiple 8 x 7-bit blocks of data)
     def set_data(self, data):
-        if len(data) // 8:
-            return False # Not a valid set of 8-byte blocks
         i = 0
         for offset in range(0, len(data), 8):
-            for word in range(1, 8):
+            block = data[offset:offset+8]
+            for word in range(1, len(block)):
                 self.data[i] = (data[offset + word] | (data[offset] & 1 << (word - 1)) << 8 - word)
             i += 1
 
