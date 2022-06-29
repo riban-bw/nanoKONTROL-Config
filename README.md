@@ -11,3 +11,16 @@ After starting the application, select the MIDI ports to which the nanoKONTROL i
 Click the "Send Scene" button to upload to the nanoKONTROL.
 
 Click the "Write Scene" button to save the scene to the nanoKONTROL's internal persistent memory.
+
+# Dependancies
+
+The application is written in Python3 and tested on GNU/Linux. It should run on any platform that can meet the following dependancies:
+
+- jack
+- tkinter
+- PIL
+- PIL Image
+
+On a DEBIAN based system the following may install the required Python modules:
+
+`apt install python3-jack-client python3-tk python3-pil python3-pil-imagetk`
