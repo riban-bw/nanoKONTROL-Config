@@ -3,7 +3,7 @@
 # Copyright riban.co.uk
 # Licencse GPL V3.0
 #
-# Dependencies: tkinter, jack
+# Dependencies: tkinter, jack, PIL, ImageTk
 
 import struct
 import jack
@@ -13,7 +13,7 @@ import logging
 from time import sleep
 from PIL import ImageTk, Image
 
-midi_chan = 0 # MIDI channel (0 based)
+midi_chan = 0 # Global MIDI channel (0 based)
 sysex_device_type = {
     'nanoKONTROL1': [0x00, 0x01, 0x04, 0x00],
     'nanoKONTROL2': [0x00, 0x01, 0x13, 0x00]
@@ -46,12 +46,12 @@ control_map = {
             'knob': 5,
             'button_a': 9,
             'button_b': 16,
-            'transport 1': 1,
-            'transport 2': 6,
-            'transport 3': 11,
-            'transport 4': 16,
-            'transport 5': 21,
-            'transport 6': 26,
+            'rew': 1,
+            'play': 6,
+            'ff': 11,
+            'cycle': 16,
+            'play': 21,
+            'stop': 26,
         },
         'groups': [16, 32, 48, 64, 80, 96, 112, 128, 144],
         'transport': 224,
@@ -115,7 +115,6 @@ control_map = {
 
 class scene:
     def __init__(self):
-        self.data = [0] * 339 # Raw data (nanoKONTROL1 only has 256 bytes so ignore upper data)
         self.device_type = "nanoKONTROL2"
         self.reset_data()
 
@@ -124,7 +123,7 @@ class scene:
     def reset_data(self):
         if self.device_type == "nanoKONTROL1":
             self.data = [0] * 256
-            self.set_scene_name("scene 0")
+            self.set_scene_name("Scene 0")
         elif self.device_type == "nanoKONTROL2":
             self.data = [0] * 339
             self.set_control_mode(0)
@@ -152,7 +151,14 @@ class scene:
 
         transport_offset = control_map[self.device_type]['transport']
         if self.device_type == 'nanoKONTROL1':
-            pass #TODO Implement nanoKONTROL1 transport
+            for i, control in enumerate(('stop', 'play', 'cycle', 'ff', 'rew', 'rec')):
+                transport_offset = control_map[self.device_type]['transport']
+                self.set_control_parameter(transport_offset, control, 'assign', 1)
+                self.set_control_parameter(transport_offset, control, 'cc/note', i)
+                self.set_control_parameter(transport_offset, control, 'off', 0)
+                self.set_control_parameter(transport_offset, control, 'on', 127)
+                self.set_control_parameter(transport_offset, control, 'behaviour', 0)
+
 
         elif self.device_type == 'nanoKONTROL2':
             for i, control in enumerate(('play', 'stop', 'rew', 'ff', 'rec', 'cycle', 'prev_track', 'next_track', 'set_marker', 'prev_marker', 'next_marker')):
@@ -496,16 +502,17 @@ def show_editor(ctrl, group=None):
         editor_title.set('{} {}'.format(ctrl.replace('_',' ').upper(), group + 1))
 
     if is_button:
-        rb_editor_note.grid()
+        rb_editor_note['state'] = tk.NORMAL
         editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
-        rb_editor_momentary.grid()
-        rb_editor_toggle.grid()
+        rb_editor_momentary['state'] = tk.NORMAL
+        rb_editor_toggle['state'] = tk.NORMAL
         lbl_editor_min['text'] = "Off"
         lbl_editor_max['text'] = "On"
+
     else:
-        rb_editor_note.grid_remove()
-        rb_editor_momentary.grid_remove()
-        rb_editor_toggle.grid_remove()
+        rb_editor_note['state'] = tk.DISABLED
+        rb_editor_momentary['state'] = tk.DISABLED
+        rb_editor_toggle['state'] = tk.DISABLED
         lbl_editor_min['text'] = "Min"
         lbl_editor_max['text'] = "Max"
 
@@ -553,6 +560,8 @@ def on_editor_max(*args):
 root = tk.Tk()
 root.title("riban nanoKONTROL editor")
 
+tk.Label(root, text="riban nanoKONTROL editor", bg='#80cde0').grid(columnspan=2, sticky='ew')
+
 editor_assign = tk.IntVar()
 editor_assign.trace('w', on_editor_assign)
 editor_behaviour = tk.IntVar()
@@ -568,71 +577,73 @@ editor_ctrl = ''
 
 
 frame_top = tk.Frame(root, padx=2, pady=2)
-frame_editor = tk.Frame(root, padx=2, pady=2)
-
-frame_top.grid(row=0, columnspan=2, sticky='n')
-frame_editor.grid(row=1, column=1, sticky='nw')
-root.columnconfigure(0, weight=1)
-root.rowconfigure(1, weight=1)
+root.rowconfigure(2, weight=1)
+root.columnconfigure(1, weight=1)
+frame_top.grid(row=1, columnspan=2, sticky='enw')
 
 ## Top frame ##
 
-ttk.Label(frame_top, text="riban nanoKONTROL editor").grid(columnspan=6)
-
 jack_source = tk.StringVar()
-ttk.Label(frame_top, text="MIDI input: ").grid(row=1, column=0)
+ttk.Label(frame_top, text="MIDI input").grid(row=1, column=0, sticky='w')
 cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
 cmb_jack_source.bind('<<ComboboxSelected>>', jack_source_changed)
-cmb_jack_source.grid(row=1, column=1)
+cmb_jack_source.grid(row=2, column=0)
 
 txt_midi_in = tk.StringVar()
 lbl_midi_in = ttk.Label(frame_top, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=20)
-lbl_midi_in.grid(row=2, column=0, columnspan=2, sticky='ew')
+lbl_midi_in.grid(row=3, column=0, columnspan=2, sticky='ew')
 
 jack_dest = tk.StringVar()
-ttk.Label(frame_top, text="MIDI output: ").grid(row=1, column=2)
+ttk.Label(frame_top, text="MIDI output").grid(row=1, column=1, sticky='w')
 cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
 cmb_jack_dest.bind('<<ComboboxSelected>>', jack_dest_changed)
-cmb_jack_dest.grid(row=1, column=3)
+cmb_jack_dest.grid(row=2, column=1)
 
 device_type = tk.StringVar(value='-')
-ttk.Label(frame_top, text="Device: ").grid(row=1, column=4)
+ttk.Label(frame_top, text="Device").grid(row=1, column=2, sticky='w')
 btn_device_type = ttk.Button(frame_top, textvariable=device_type, command=on_device_type_press)
-btn_device_type.grid(row=1, column=5)
+btn_device_type.grid(row=2, column=2)
 
 btn_get_scene = ttk.Button(frame_top, text="Get Scene", command=send_dump_request)
-btn_get_scene.grid(row=1, column=6)
+btn_get_scene.grid(row=2, column=3)
 
 btn_send_scene = ttk.Button(frame_top, text="Send Scene", command=send_scene_data)
-btn_send_scene.grid(row=2, column=6)
+btn_send_scene.grid(row=3, column=3)
 
 btn_write_scene = ttk.Button(frame_top, text="Write Scene", command=send_scene_write_request)
-btn_write_scene.grid(row=2, column=7)
+btn_write_scene.grid(row=3, column=4)
 
 btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
-btn_test_leds.grid(row=1, column=7)
+btn_test_leds.grid(row=2, column=4)
 
 ## Control editor frame ##
 
-editor_title = tk.StringVar()
+frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
+frame_editor.grid(row=2, column=1, sticky='nw')
+frame_editor.columnconfigure(0, weight=1)
 
-tk.Label(frame_editor, textvariable=editor_title).grid(row=0, column=0, columnspan=3)
-tk.Radiobutton(frame_editor, text="Disabled", variable=editor_assign, value=0).grid(row=1, column=0, sticky='w')
-tk.Radiobutton(frame_editor, text="CC", variable=editor_assign, value=1).grid(row=1, column=1, sticky='w')
-rb_editor_note = tk.Radiobutton(frame_editor, text="Note", variable=editor_assign, value=2)
-rb_editor_note.grid(row=1, column=2, sticky='w')
-rb_editor_momentary = tk.Radiobutton(frame_editor, text="Momentary", variable=editor_behaviour, value=0)
-rb_editor_momentary.grid(row=2, column=0, sticky='w')
-rb_editor_toggle = tk.Radiobutton(frame_editor, text="Toggle", variable=editor_behaviour, value=1)
-rb_editor_toggle.grid(row=2, column=1, sticky='w')
-tk.Label(frame_editor, text="CC").grid(row=3, column=0, sticky='w')
-tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3).grid(row=3, column=1, sticky='w')
+editor_title = tk.StringVar()
+tk.Label(frame_editor, textvariable=editor_title, bg='#80cde0').grid(row=0, column=0, columnspan=2, sticky='wne')
+frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_assign.grid(row=1, columnspan=2, sticky='ew')
+tk.Radiobutton(frame_assign, text="Disabled", variable=editor_assign, value=0).grid(row=0, column=0)
+tk.Radiobutton(frame_assign, text="CC", variable=editor_assign, value=1).grid(row=0, column=1)
+rb_editor_note = tk.Radiobutton(frame_assign, text="Note", variable=editor_assign, value=2)
+rb_editor_note.grid(row=0, column=2)
+frame_behaviour = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_behaviour.grid(row=5, columnspan=2, sticky='ew')
+rb_editor_momentary = tk.Radiobutton(frame_behaviour, text="Momentary", variable=editor_behaviour, value=0)
+rb_editor_momentary.grid(row=0, column=0, sticky='w')
+rb_editor_toggle = tk.Radiobutton(frame_behaviour, text="Toggle", variable=editor_behaviour, value=1)
+rb_editor_toggle.grid(row=0, column=1, sticky='w')
+tk.Label(frame_editor, text="CC").grid(row=2, column=0, sticky='e')
+tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3).grid(row=2, column=1, sticky='w')
 lbl_editor_min = tk.Label(frame_editor, text="Off")
-lbl_editor_min.grid(row=4, column=0, sticky='w')
-tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3).grid(row=4, column=1, sticky='w')
+lbl_editor_min.grid(row=3, column=0, sticky='e')
+tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3).grid(row=3, column=1, sticky='w')
 lbl_editor_max = tk.Label(frame_editor, text="On")
-lbl_editor_max.grid(row=5, column=0, sticky='w')
-tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3).grid(row=5, column=1, sticky='w')
+lbl_editor_max.grid(row=4, column=0, sticky='e')
+tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3).grid(row=4, column=1, sticky='w')
 
 
 # Handle mouse click on image
@@ -714,7 +725,7 @@ img2 = ImageTk.PhotoImage(Image.open('nanoKONTROL2.png').resize((800,250), Image
 canvas = tk.Canvas(root)
 device_image = canvas.create_image(0, 0, anchor='nw', image=img2)
 root.grid_columnconfigure(0, minsize=800)
-canvas.grid(row=1, column=0, sticky='nsew')
+canvas.grid(row=2, column=0, sticky='nsew')
 canvas.bind('<Button-1>', on_canvas_click)
 
 
