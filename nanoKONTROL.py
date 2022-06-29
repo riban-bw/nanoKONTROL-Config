@@ -176,6 +176,7 @@ class scene:
 
     # Get data in MIDI sysex format
     # Convert Korg 8-bit data to 7-bit MIDI data
+    # nanoKONTROL1/2 have 256/339 bytes of data 
     #   data: 8-bit Korg data
     #   returns: List containing sysex data
     def get_midi_data(self):
@@ -576,7 +577,7 @@ cmb_jack_source.bind('<<ComboboxSelected>>', jack_source_changed)
 cmb_jack_source.grid(row=1, column=1)
 
 txt_midi_in = tk.StringVar()
-lbl_midi_in = ttk.Label(frame_top, textvariable=txt_midi_in, anchor='w', background='#aacf55')
+lbl_midi_in = ttk.Label(frame_top, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=20)
 lbl_midi_in.grid(row=2, column=0, columnspan=2, sticky='ew')
 
 
@@ -601,7 +602,7 @@ btn_write_scene = ttk.Button(frame_top, text="Write Scene", command=send_scene_w
 btn_write_scene.grid(row=2, column=7)
 
 btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
-btn_test_leds.grid(row=2, column=5)
+btn_test_leds.grid(row=1, column=7)
 
 lbl_track = ttk.Label(frame_left, text="TRACK")
 lbl_track.grid(row=0, columnspan=2)
@@ -775,7 +776,7 @@ def process(frames):
     # Process incoming messages
     for offset, indata in midi_in.incoming_midi_events():
         data = struct.unpack('{}B'.format(len(indata)), indata)
-        str = ""
+        str = "[{}] ".format(len(data))
         for i in data:
             str += "{:02X} ".format(i)
         #print(str)
