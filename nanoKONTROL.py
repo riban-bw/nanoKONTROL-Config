@@ -24,8 +24,6 @@ midi_out = client.midi_outports.register('out')
 ev = []
 echo_id = 0x00
 
-ctrl_map = {} # Map of GUI controls with associated data structures
-
 assign_options = ['Disabled', 'CC', 'Note']
 behaviour_options = ['Momentary', 'Toggle']
 control_map = {
@@ -475,15 +473,6 @@ def test_leds():
             sleep(0.05)
 
 
-
-def assert_editor():
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'assign', editor_assign.get())
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cc/note', editor_cmd.get())
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'off', editor_min.get())
-    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'on', editor_max.get())
-
-
 # Show the control editor
 #   ctrl: Name of the control to edit
 #   group: Control group or None (default) for transport controls
@@ -495,21 +484,16 @@ def show_editor(ctrl, group=None):
     global editor_min
     global editor_max
     global editor_ctrl
-    global rb_editor_note
-    global rb_editor_momentary
-    global rb_editor_toggle
-    global lbl_editor_min
-    global lbl_editor_max
 
     editor_ctrl = ctrl
     is_button = editor_ctrl not in ('knob', 'slider')
 
     if group is None:
         editor_group_offset = control_map[scene_data.device_type]['transport']
-        editor_title.set('{}'.format(ctrl))
+        editor_title.set('{}'.format(ctrl.replace('_',' ').upper()))
     elif group < len(control_map[scene_data.device_type]['groups']):
         editor_group_offset = control_map[scene_data.device_type]['groups'][group]
-        editor_title.set('{} {}'.format(ctrl, group + 1))
+        editor_title.set('{} {}'.format(ctrl.replace('_',' ').upper(), group + 1))
 
     if is_button:
         rb_editor_note.grid()
@@ -531,15 +515,39 @@ def show_editor(ctrl, group=None):
     editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'on'))
 
 
+def on_editor_assign(*args):
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'assign', editor_assign.get())
+
+
+def on_editor_behaviour(*args):
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
+
+
+def on_editor_cmd(*args):
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cc/note', editor_cmd.get())
+
+
+def on_editor_min(*args):
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'off', editor_min.get())
+
+
+def on_editor_max(*args):
+    scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'on', editor_max.get())
+
 
 root = tk.Tk()
 root.title("riban nanoKONTROL editor")
 
 editor_assign = tk.IntVar()
+editor_assign.trace('w', on_editor_assign)
 editor_behaviour = tk.IntVar()
+editor_behaviour.trace('w', on_editor_behaviour)
 editor_cmd = tk.IntVar()
+editor_cmd.trace('w', on_editor_cmd)
 editor_min = tk.IntVar()
+editor_min.trace('w', on_editor_min)
 editor_max = tk.IntVar()
+editor_max.trace('w', on_editor_max)
 editor_group_offset = 0
 editor_ctrl = ''
 
@@ -610,8 +618,7 @@ tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3).grid
 lbl_editor_max = tk.Label(frame_editor, text="On")
 lbl_editor_max.grid(row=5, column=0, sticky='w')
 tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3).grid(row=5, column=1, sticky='w')
-ttk.Button(frame_editor, text="OK", command=assert_editor).grid(row=6, column=1, sticky='w')
-    
+
 
 # Handle mouse click on image
 #   event: Mouse event
@@ -625,8 +632,8 @@ def on_canvas_click(event):
         group_ctrl_coords = {
             'knob': [0.03, 0.11, 0.08, 0.2],
             'slider': [0.04, 0.47, 0.07, 0.75],
-            'solo': [0.00, 0.44, 0.03, 0.54],
-            'mute': [0.00, 0.70, 0.03, 0.80]
+            'button_a': [0.00, 0.44, 0.03, 0.54],
+            'button_b': [0.00, 0.70, 0.03, 0.80]
         }
         transport_ctrl_coords = {
             'rew': [0.03, 0.52, 0.08, 0.61],
@@ -828,5 +835,6 @@ def refresh_jack_ports():
 client.activate()
 
 set_device_type('nanoKONTROL2')
+show_editor('slider', 0)
 
 root.mainloop()
