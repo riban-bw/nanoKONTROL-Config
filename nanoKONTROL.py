@@ -646,6 +646,22 @@ root.rowconfigure(2, weight=1)
 root.columnconfigure(1, weight=1)
 frame_top.grid(row=1, columnspan=2, sticky='enw')
 
+
+def populate_asla_source(event):
+    ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
+    for port in ports:
+        name = port.client_name + ":" + port.name
+        source_ports[name] = ['alsa', port]
+    update_ports()
+
+
+def populate_asla_dest(event):
+    ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
+    for port in ports:
+        name = port.client_name + ":" + port.name
+        destination_ports[name] = ['alsa', port]
+    update_ports()
+
 ## Top frame ##
 
 jack_source = tk.StringVar()
@@ -653,6 +669,7 @@ ttk.Label(frame_top, text="MIDI input").grid(row=1, column=0, sticky='w')
 cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
 cmb_jack_source.bind('<<ComboboxSelected>>', source_changed)
 cmb_jack_source.grid(row=2, column=0)
+cmb_jack_source.bind('<Enter>', populate_asla_source)
 
 txt_midi_in = tk.StringVar()
 lbl_midi_in = ttk.Label(frame_top, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=20)
@@ -663,6 +680,7 @@ ttk.Label(frame_top, text="MIDI output").grid(row=1, column=1, sticky='w')
 cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
 cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
 cmb_jack_dest.grid(row=2, column=1)
+cmb_jack_dest.bind('<Enter>', populate_asla_dest)
 
 device_type = tk.StringVar(value='-')
 ttk.Label(frame_top, text="Device").grid(row=1, column=2, sticky='w')
@@ -947,21 +965,6 @@ if jack_client:
 ## ALSA MIDI ##
 ###############
 
-def populate_asla_ports():
-    #TODO: Trigger this on changes to alsa graph
-    ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
-    for port in ports:
-        name = port.client_name + ":" + port.name
-        source_ports[name] = ['alsa', port]
-    
-    ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
-    for port in ports:
-        name = port.client_name + ":" + port.name
-        destination_ports[name] = ['alsa', port]
-
-    update_ports()
-
-
 def alsa_midi_in_thread():
     while True:
         event = alsa_client.event_input(prefer_bytes=True)
@@ -976,7 +979,6 @@ if alsa_client:
     alsa_thread.name = "alsa_in"
     alsa_thread.daemon = True
     alsa_thread.start()
-    populate_asla_ports()
 
 set_device_type('nanoKONTROL2')
 show_editor('slider', 0)
