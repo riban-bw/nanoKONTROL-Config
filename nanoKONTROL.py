@@ -21,12 +21,6 @@ from time import sleep
 from PIL import ImageTk, Image
 from threading import Thread
 
-global_midi_chan = 0 # Global MIDI channel (0 based)
-sysex_device_type = {
-    'nanoKONTROL1': [0x00, 0x01, 0x04, 0x00],
-    'nanoKONTROL2': [0x00, 0x01, 0x13, 0x00]
-}
-
 jack_client = None
 try:
     jack_client = jack.Client('riban-nanoKonfig')
@@ -136,7 +130,30 @@ control_map = {
 
 class scene:
     def __init__(self):
-        self.device_type = "nanoKONTROL2"
+        self.global_midi_chan = 0 # Global MIDI channel (0 based)
+        self.device_types = {
+            'nanoKONTROL1': {
+                'sysex_len': 307,
+                'sysex_id': [0x00, 0x01, 0x04, 0x00]
+            },
+            'nanoKONTROL2': {
+                'sysex_len': 402,
+                'sysex_id': [0x00, 0x01, 0x13, 0x00]
+            }
+        }
+        self.device_type = None
+        self.set_device_type('nanoKONTROL2')
+
+
+    def get_sysex_id(self):
+        return self.device_types[self.device_type]['sysex_id']
+
+    # Set the device type
+    #   type: Device type ['nanoKONTROL1', 'nanoKONTROL2']
+    def set_device_type(self, type):
+        if type == self.device_type or type not in self.device_types:
+            return
+        self.device_type = type
         self.reset_data()
 
 
@@ -199,7 +216,7 @@ class scene:
                 self.data[i] = 0 #TODO: What are default custom daw values?
 
 
-    # Get data in MIDI sysex format
+    # Get data (payload) in MIDI sysex format
     # Convert Korg 8-bit data to 7-bit MIDI data
     # nanoKONTROL1 has 256 bytes of data which gives 36 blocks of 7 bytes plus 4 extra bytes
     # nanoKONTROL2 has 339 bytes of data which gives 48 blocks of 7 bytes plus 3 extra bytes
@@ -225,6 +242,9 @@ class scene:
     # Raw data: 1st byte holds bit-7 of subsequent bytes, next 7 bytes hold bits 0..7 of each byte
     #   data: raw 7-bit MIDI data (multiple 8 x 7-bit blocks of data)
     def set_data(self, data):
+        if len(data) != self.device_types[self.device_type]['sysex_len']:
+            logging.warning("Received wrong length data dump")
+            return
         i = 0
         for offset in range(0, len(data), 8):
             block = data[offset:offset+8]
@@ -409,7 +429,7 @@ def send_device_search():
 #   data: List containing the message payload
 def send_command_list(data):
     try:
-        send_midi([0xF0, 0x42, 0x40 | global_midi_chan] + sysex_device_type[scene_data.device_type] + data + [0xF7])
+        send_midi([0xF0, 0x42, 0x40 | scene_data.global_midi_chan] + scene_data.get_sysex_id() + data + [0xF7])
     except Exception as e:
         logging.warning(e)
 
@@ -461,6 +481,7 @@ def send_scene_data():
 # Send port detect request
 def send_port_detect():
     send_command_list([0x1E, 0x00, echo_id])
+
 
 ## UI ##
 
@@ -563,13 +584,6 @@ def destination_changed(event):
             alsa_midi_out.connect_to(destination_ports[name][1])
     except Exception as e:
         pass
-
-
-# Handle device search request button
-def on_device_type_press():
-    global device_type
-    device_type.set('-')
-    send_device_search()
 
 
 # Blink each LED
@@ -711,19 +725,13 @@ cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
 cmb_jack_dest.grid(row=2, column=1)
 cmb_jack_dest.bind('<Enter>', populate_asla_dest)
 
-device_type = tk.StringVar(value='-')
-ttk.Label(frame_top, text="Device").grid(row=1, column=2, sticky='w')
-btn_device_type = ttk.Button(frame_top, textvariable=device_type, command=on_device_type_press)
-btn_device_type.grid(row=2, column=2)
+ttk.Button(frame_top, text='Detect', command=send_device_search).grid(row=2, column=2)
 
-btn_get_scene = ttk.Button(frame_top, text="Get Scene", command=send_dump_request)
-btn_get_scene.grid(row=2, column=3)
+ttk.Button(frame_top, text="Get Scene", command=send_dump_request).grid(row=2, column=3)
 
-btn_send_scene = ttk.Button(frame_top, text="Send Scene", command=send_scene_data)
-btn_send_scene.grid(row=3, column=3)
+ttk.Button(frame_top, text="Send Scene", command=send_scene_data).grid(row=3, column=3)
 
-btn_write_scene = ttk.Button(frame_top, text="Write Scene", command=send_scene_write_request)
-btn_write_scene.grid(row=3, column=4)
+ttk.Button(frame_top, text="Write Scene", command=send_scene_write_request).grid(row=3, column=4)
 
 btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
 btn_test_leds.grid(row=2, column=4)
@@ -844,21 +852,17 @@ canvas.bind('<Button-1>', on_canvas_click)
 # Set the device type
 #   type: Device type ['nanoKONTROL1', 'nanoKONTROL2']
 def set_device_type(type):
-    device_type.set(type)
-    scene_data.device_type = type
-    scene_data.reset_data()
+    scene_data.set_device_type(type)
     if type == 'nanoKONTROL1':
         btn_test_leds.grid_remove()
         canvas.itemconfigure(device_image, image=img1, state=tk.NORMAL)
-
     elif type == 'nanoKONTROL2':
-        btn_test_leds.grid()
         btn_test_leds.grid()
         canvas.itemconfigure(device_image, image=img2, state=tk.NORMAL)
 
 
 def handle_midi_input(indata):
-    global global_midi_chan
+    
     data = struct.unpack('{}B'.format(len(indata)), indata)
     str = "[{}] ".format(len(data))
     for i in data:
@@ -868,12 +872,12 @@ def handle_midi_input(indata):
 
     if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42):
         # Device inquiry reply
-        global_midi_chan = data[2]
+        scene_data.global_midi_chan = data[2]
         major = data[12] + (data[13 << 7])
         minor = data[10] + (data[11] << 7)
     elif data[:4] == (0xF0, 0x42, 0x50, 0x01) and data[5] == echo_id:
         # Search device reply
-        global_midi_chan = data[4]
+        scene_data.global_midi_chan = data[4]
         family_id = data[6] + (data[7] << 7)
         member_id = data[8] + (data[9] << 7)
         minor = data[10]  + (data[11]<< 7)
@@ -896,7 +900,7 @@ def handle_midi_input(indata):
         elif cmd == 0xE0:
             # Pitch bend
             pass
-    elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | global_midi_chan] + sysex_device_type[scene_data.device_type]:
+    elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | scene_data.global_midi_chan] + scene_data.get_sysex_id():
         # Command list
         if data[7:13] == [0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40]:
             # nanoKONTROL2 data dump
@@ -941,8 +945,6 @@ if jack_client:
     @jack_client.set_process_callback
     def process(frames):
         global ev
-        global global_midi_chan
-        global device_type
 
         midi_out.clear_buffer()
         if ev:
