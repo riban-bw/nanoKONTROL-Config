@@ -5,7 +5,15 @@
 #
 # Dependencies: tkinter, jack, PIL, ImageTk
 
+credits = [
+    "Icons:",
+    "https://freeicons.io",
+    "profile/5790", # Transfer, Lamp, Save
+    "profile/3335" # Info
+]
+
 import struct
+from tkinter import messagebox
 try:
     import jack
 except:
@@ -699,11 +707,56 @@ def on_editor_max(*args):
         pass
 
 
+def show_info():
+    msg = 'nanoKONTROL-Config\nriban 2022\n'
+    for credit in credits:
+        msg += '\n{}'.format(credit)
+    messagebox.showinfo('About...', msg)
+
+## Root window ##
 root = tk.Tk()
 root.title("riban nanoKONTROL editor")
-
 tk.Label(root, text="riban nanoKONTROL editor", bg='#80cde0').grid(columnspan=2, sticky='ew')
 
+# icons #
+img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'), Image.ANTIALIAS)
+img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Image.ANTIALIAS)
+img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.ANTIALIAS)
+img_lamp = ImageTk.PhotoImage(Image.open('lamp.png'), Image.ANTIALIAS)
+img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.ANTIALIAS)
+
+frame_top = tk.Frame(root, padx=2, pady=2)
+root.rowconfigure(2, weight=1)
+root.columnconfigure(1, weight=1)
+frame_top.grid(row=1, columnspan=2, sticky='enw')
+
+## Top frame ##
+jack_source = tk.StringVar()
+ttk.Label(frame_top, text="MIDI input").grid(row=0, column=0, sticky='w')
+cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
+cmb_jack_source.bind('<<ComboboxSelected>>', source_changed)
+cmb_jack_source.grid(row=1, column=0, sticky='n')
+cmb_jack_source.bind('<Enter>', populate_asla_source)
+
+txt_midi_in = tk.StringVar()
+ttk.Label(root, textvariable=txt_midi_in, anchor='w', background='#aacf55').grid(row=3, column=0, columnspan=2, sticky='ew')
+
+jack_dest = tk.StringVar()
+ttk.Label(frame_top, text="MIDI output").grid(row=0, column=1, sticky='w')
+cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
+cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
+cmb_jack_dest.grid(row=1, column=1, sticky='n')
+cmb_jack_dest.bind('<Enter>', populate_asla_dest)
+
+ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request).grid(row=0, column=2, rowspan=2)
+ttk.Button(frame_top, image=img_transfer_up, command=send_scene_data).grid(row=0, column=3, rowspan=2)
+ttk.Button(frame_top, image=img_save, command=send_scene_write_request).grid(row=0, column=4, rowspan=2)
+
+btn_test_leds = ttk.Button(frame_top, image=img_lamp, command=test_leds)
+btn_test_leds.grid(row=0, column=5, rowspan=2)
+ttk.Button(frame_top, image=img_info, command=show_info).grid(row=0, column=6, rowspan=2)
+
+## Control editor frame ##
 editor_assign = tk.IntVar()
 editor_assign.trace('w', on_editor_assign)
 editor_behaviour = tk.IntVar()
@@ -717,75 +770,42 @@ editor_max.trace('w', on_editor_max)
 editor_group_offset = 0
 editor_ctrl = ''
 
-
-frame_top = tk.Frame(root, padx=2, pady=2)
-root.rowconfigure(2, weight=1)
-root.columnconfigure(1, weight=1)
-frame_top.grid(row=1, columnspan=2, sticky='enw')
-
-
-## Top frame ##
-
-jack_source = tk.StringVar()
-ttk.Label(frame_top, text="MIDI input").grid(row=1, column=0, sticky='w')
-cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
-cmb_jack_source.bind('<<ComboboxSelected>>', source_changed)
-cmb_jack_source.grid(row=2, column=0)
-cmb_jack_source.bind('<Enter>', populate_asla_source)
-
-txt_midi_in = tk.StringVar()
-lbl_midi_in = ttk.Label(frame_top, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=20)
-lbl_midi_in.grid(row=3, column=0, columnspan=2, sticky='ew')
-
-jack_dest = tk.StringVar()
-ttk.Label(frame_top, text="MIDI output").grid(row=1, column=1, sticky='w')
-cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
-cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
-cmb_jack_dest.grid(row=2, column=1)
-cmb_jack_dest.bind('<Enter>', populate_asla_dest)
-
-
-ttk.Button(frame_top, text="Get Scene", command=send_dump_request).grid(row=2, column=3)
-
-ttk.Button(frame_top, text="Send Scene", command=send_scene_data).grid(row=3, column=3)
-
-ttk.Button(frame_top, text="Write Scene", command=send_scene_write_request).grid(row=3, column=4)
-
-btn_test_leds = ttk.Button(frame_top, text="Test LEDs", command=test_leds)
-btn_test_leds.grid(row=2, column=4)
-
-## Control editor frame ##
-
 frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
 frame_editor.grid(row=2, column=1, sticky='nw')
 frame_editor.columnconfigure(0, weight=1)
 
 editor_title = tk.StringVar()
-tk.Label(frame_editor, textvariable=editor_title, bg='#80cde0').grid(row=0, column=0, columnspan=2, sticky='wne')
+
+tk.Label(frame_editor, textvariable=editor_title, bg='#bf64ed').grid(row=0, column=0, columnspan=6, sticky='wne')
 frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_assign.grid(row=1, columnspan=2, sticky='ew')
+frame_assign.grid(row=1, columnspan=6, sticky='ew')
 tk.Radiobutton(frame_assign, text="Disabled", variable=editor_assign, value=0).grid(row=0, column=0)
 tk.Radiobutton(frame_assign, text="CC", variable=editor_assign, value=1).grid(row=0, column=1)
 rb_editor_note = tk.Radiobutton(frame_assign, text="Note", variable=editor_assign, value=2)
 rb_editor_note.grid(row=0, column=2)
+
 frame_behaviour = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_behaviour.grid(row=2, columnspan=2, sticky='ew')
+frame_behaviour.grid(row=2, columnspan=6, sticky='ew')
 rb_editor_momentary = tk.Radiobutton(frame_behaviour, text="Momentary", variable=editor_behaviour, value=0)
 rb_editor_momentary.grid(row=0, column=0, sticky='w')
 rb_editor_toggle = tk.Radiobutton(frame_behaviour, text="Toggle", variable=editor_behaviour, value=1)
 rb_editor_toggle.grid(row=0, column=1, sticky='w')
+
+frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
+frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
+frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
 lbl_editor_cmd = tk.Label(frame_editor, text="CC")
-lbl_editor_cmd.grid(row=3, column=0, sticky='e') #TODO: Change label to "Note" as appropriate
+lbl_editor_cmd.grid(row=3, column=0, sticky='w')
 spn_cmd = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3)
-spn_cmd.grid(row=3, column=1, sticky='w')
+spn_cmd.grid(row=4, column=0, sticky='ew')
 lbl_editor_min = tk.Label(frame_editor, text="Off")
-lbl_editor_min.grid(row=4, column=0, sticky='e')
+lbl_editor_min.grid(row=3, column=1, sticky='w')
 spn_min = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3)
-spn_min.grid(row=4, column=1, sticky='w')
+spn_min.grid(row=4, column=1, sticky='ew')
 lbl_editor_max = tk.Label(frame_editor, text="On")
-lbl_editor_max.grid(row=5, column=0, sticky='e')
+lbl_editor_max.grid(row=3, column=2, sticky='w')
 spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
-spn_max.grid(row=5, column=1, sticky='w')
+spn_max.grid(row=4, column=2, sticky='ew')
 
 
 # Handle mouse click on image
@@ -861,7 +881,6 @@ def on_canvas_click(event):
                 show_editor(ctrl)
 
 ## Device image ##
-
 img1 = ImageTk.PhotoImage(Image.open('nanoKONTROL1.png').resize((800,250), Image.ANTIALIAS))
 img2 = ImageTk.PhotoImage(Image.open('nanoKONTROL2.png').resize((800,250), Image.ANTIALIAS))
 canvas = tk.Canvas(root)
@@ -881,6 +900,7 @@ def set_device_type(type):
     elif type == 'nanoKONTROL2':
         btn_test_leds.grid()
         canvas.itemconfigure(device_image, image=img2, state=tk.NORMAL)
+    show_editor('slider', 0)
 
 
 def handle_midi_input(indata):
