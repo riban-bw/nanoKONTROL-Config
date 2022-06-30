@@ -555,6 +555,7 @@ def source_changed(event):
             alsa_midi_in.connect_from(source_ports[name][1])
     except Exception as e:
         pass
+    send_device_search()
 
 
 # Handle MIDI destination change
@@ -584,7 +585,7 @@ def destination_changed(event):
             alsa_midi_out.connect_to(destination_ports[name][1])
     except Exception as e:
         pass
-
+    send_device_search()
 
 # Blink each LED
 def test_leds():
