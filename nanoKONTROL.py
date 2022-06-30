@@ -650,6 +650,23 @@ def on_editor_assign(*args):
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'assign', editor_assign.get())
     except:
         pass
+    if editor_assign.get() == 0:
+        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max]:
+            ctrl['state'] = tk.DISABLED
+    elif editor_assign.get() == 1:
+        for ctrl in [spn_cmd, spn_min, spn_max]:
+            ctrl['state'] = tk.NORMAL
+        if editor_ctrl not in ['slider', 'knob']:
+            rb_editor_momentary['state'] = tk.NORMAL
+            rb_editor_toggle['state'] = tk.NORMAL
+        lbl_editor_cmd['text'] = 'CC'
+    elif editor_assign.get() == 2:
+        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max]:
+            ctrl['state'] = tk.NORMAL
+        if editor_ctrl not in ['slider', 'knob']:
+            rb_editor_momentary['state'] = tk.NORMAL
+            rb_editor_toggle['state'] = tk.NORMAL
+        lbl_editor_cmd['text'] = 'Note'
 
 
 def on_editor_behaviour(*args):
@@ -756,14 +773,18 @@ rb_editor_momentary = tk.Radiobutton(frame_behaviour, text="Momentary", variable
 rb_editor_momentary.grid(row=0, column=0, sticky='w')
 rb_editor_toggle = tk.Radiobutton(frame_behaviour, text="Toggle", variable=editor_behaviour, value=1)
 rb_editor_toggle.grid(row=0, column=1, sticky='w')
-tk.Label(frame_editor, text="CC").grid(row=3, column=0, sticky='e')
-tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3).grid(row=3, column=1, sticky='w')
+lbl_editor_cmd = tk.Label(frame_editor, text="CC")
+lbl_editor_cmd.grid(row=3, column=0, sticky='e') #TODO: Change label to "Note" as appropriate
+spn_cmd = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3)
+spn_cmd.grid(row=3, column=1, sticky='w')
 lbl_editor_min = tk.Label(frame_editor, text="Off")
 lbl_editor_min.grid(row=4, column=0, sticky='e')
-tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3).grid(row=4, column=1, sticky='w')
+spn_min = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3)
+spn_min.grid(row=4, column=1, sticky='w')
 lbl_editor_max = tk.Label(frame_editor, text="On")
 lbl_editor_max.grid(row=5, column=0, sticky='e')
-tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3).grid(row=5, column=1, sticky='w')
+spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
+spn_max.grid(row=5, column=1, sticky='w')
 
 
 # Handle mouse click on image
