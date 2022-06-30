@@ -464,6 +464,50 @@ def send_port_detect():
 
 ## UI ##
 
+source_ports = {}
+destination_ports = {}
+
+
+def populate_asla_source(event):
+    global source_ports
+    ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
+    temp_ports = {}
+    for port in source_ports:
+        if source_ports[port][0] == 'jack':
+            temp_ports[port] = source_ports[port]
+    source_ports = temp_ports
+    for port in ports:
+        name = port.client_name + ":" + port.name
+        source_ports[name] = ['alsa', port]
+    update_ports()
+
+
+def populate_asla_dest(event):
+    global destination_ports
+    ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
+    temp_ports = {}
+    for port in destination_ports:
+        if destination_ports[port][0] == 'jack':
+            temp_ports[port] = destination_ports[port]
+    destination_ports = temp_ports
+    for port in ports:
+        name = port.client_name + ":" + port.name
+        destination_ports[name] = ['alsa', port]
+    update_ports()
+
+
+# Update list of MIDI ports
+def update_ports():
+    values = []
+    for port in source_ports:
+        values.append(port)
+    cmb_jack_source['values'] = values
+    values = []
+    for port in destination_ports:
+        values.append(port)
+    cmb_jack_dest['values'] = values
+
+
 # Handle MIDI source change
 def source_changed(event):
     name = jack_source.get()
@@ -646,21 +690,6 @@ root.rowconfigure(2, weight=1)
 root.columnconfigure(1, weight=1)
 frame_top.grid(row=1, columnspan=2, sticky='enw')
 
-
-def populate_asla_source(event):
-    ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
-    for port in ports:
-        name = port.client_name + ":" + port.name
-        source_ports[name] = ['alsa', port]
-    update_ports()
-
-
-def populate_asla_dest(event):
-    ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
-    for port in ports:
-        name = port.client_name + ":" + port.name
-        destination_ports[name] = ['alsa', port]
-    update_ports()
 
 ## Top frame ##
 
@@ -904,19 +933,6 @@ def handle_midi_input(indata):
         # Native mode
         pass
 
-source_ports = {}
-destination_ports = {}
-
-def update_ports():
-    values = []
-    for port in source_ports:
-        values.append(port)
-    cmb_jack_source['values'] = values
-    values = []
-    for port in destination_ports:
-        values.append(port)
-    cmb_jack_dest['values'] = values
-
 
 ##########
 ## JACK ##
@@ -956,6 +972,7 @@ if jack_client:
             destination_ports[port.name] = ['jack', port]
 
         update_ports()
+
 
     # Activate jack client and get available MIDI ports
     jack_client.activate()
