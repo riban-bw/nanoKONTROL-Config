@@ -54,13 +54,13 @@ control_map = {
         'param_map': {
             'assign':[0, 2],
             'behaviour': [6, 1],
-            'cc/note': [1, 127],
+            'cmd': [1, 127],
             'off': [2, 127],
             'on': [3, 127],
             'attack': [4, 127],
             'decay': [5, 127],
-            'mmc cmd': [2, 12],
-            'mmc id': [3, 127],
+            'mmc_cmd': [2, 12],
+            'mmc_id': [3, 127],
             'transport behaviour': [5, 1]
         },
         'group_map': {
@@ -83,7 +83,7 @@ control_map = {
         'param_map': {
             'assign':[0, 2],
             'behaviour': [1, 1],
-            'cc/note': [2, 127],
+            'cmd': [2, 127],
             'off': [3, 127],
             'on': [4, 127]
         },
@@ -176,11 +176,11 @@ class scene:
             self.set_led_mode(0)
         self.set_global_channel(15)
         for group, group_offset in enumerate(control_map[self.device_type]['groups']):
-            self.set_group_channel(group, 15)
+            self.set_group_channel(group_offset, 16)
             if self.device_type == "nanoKONTROL1":
                 for i, control in enumerate(('slider', 'knob', 'button_a', 'button_b')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
-                    self.set_control_parameter(group_offset, control, 'cc/note', 0x10 * i + group) #TODO: What is the default CC?
+                    self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group) #TODO: What is the default CC?
                     self.set_control_parameter(group_offset, control, 'off', 0)
                     self.set_control_parameter(group_offset, control, 'on', 127)
                 for i, control in enumerate(('button_a', 'button_b')):
@@ -190,17 +190,20 @@ class scene:
             elif self.device_type == "nanoKONTROL2":
                 for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
-                    self.set_control_parameter(group_offset, control, 'cc/note', 0x10 * i + group)
+                    self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group)
                     self.set_control_parameter(group_offset, control, 'off', 0)
                     self.set_control_parameter(group_offset, control, 'on', 127)
                     self.set_control_parameter(group_offset, control, 'behaviour', 0)
 
         transport_offset = control_map[self.device_type]['transport']
+        self.set_group_channel(transport_offset, 16)
         if self.device_type == 'nanoKONTROL1':
             for i, control in enumerate(('stop', 'play', 'cycle', 'ff', 'rew', 'rec')):
                 transport_offset = control_map[self.device_type]['transport']
-                self.set_control_parameter(transport_offset, control, 'assign', 1)
-                self.set_control_parameter(transport_offset, control, 'cc/note', i)
+                self.set_control_parameter(transport_offset, control, 'assign', 1) #TODO: V1 transport button options are disabled, CC, MCC
+                self.set_control_parameter(transport_offset, control, 'cmd', i)
+                self.set_control_parameter(transport_offset, control, 'mmc_cmd', i)
+                self.set_control_parameter(transport_offset, control, 'mmc_id', 0)
                 self.set_control_parameter(transport_offset, control, 'off', 0)
                 self.set_control_parameter(transport_offset, control, 'on', 127)
                 self.set_control_parameter(transport_offset, control, 'behaviour', 0)
@@ -211,9 +214,9 @@ class scene:
                 transport_offset = control_map[self.device_type]['transport']
                 self.set_control_parameter(transport_offset, control, 'assign', 1)
                 if i < 6:
-                    self.set_control_parameter(transport_offset, control, 'cc/note',  0x29 + i)
+                    self.set_control_parameter(transport_offset, control, 'cmd',  0x29 + i)
                 else:
-                    self.set_control_parameter(transport_offset, control, 'cc/note',  0x34 + i)
+                    self.set_control_parameter(transport_offset, control, 'cmd',  0x34 + i)
                 self.set_control_parameter(transport_offset, control, 'off', 0)
                 self.set_control_parameter(transport_offset, control, 'on', 127)
                 self.set_control_parameter(transport_offset, control, 'behaviour', 0)
@@ -277,8 +280,11 @@ class scene:
     #   nanoKONTROL1 only
     def set_scene_name(self, name):
         if self.device_type == 'nanoKONTROL1':
-            for i,c in enumerate(name[:12]):
-                self.data[i] = ord(c)
+            for i in range(12):
+                if i < len(name):
+                    self.data[i] = ord(name[i])
+                else:
+                    self.data[i] = ord(" ")
 
 
     # Get global MIDI channel
@@ -294,8 +300,11 @@ class scene:
     # Set global MIDI channel
     #   chan: MIDI channel
     def set_global_channel(self, chan):
-        if self.device_type == 'nanoKONTROL1' and chan < 16:
-            self.data[12] = chan
+        if chan < 16:
+            if self.device_type == 'nanoKONTROL1':
+                self.data[12] = chan
+            elif self.device_type == 'nanoKONTROL2':
+                self.data[0] = chan
 
 
     # Get control mode
@@ -351,7 +360,7 @@ class scene:
     # Get control parameter
     #   group_offset: Offset of group / transport
     #   control: Control name, e.g. 'button_a'
-    #   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
+    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'off', 'on']
     #   returns: Parameter value or 0 if parameter not available
     def get_control_parameter(self, group_offset, control, param):
         try:
@@ -365,7 +374,7 @@ class scene:
     # Set control parameter
     #   group_offset: Offset of group / transport
     #   control: Control name, e.g. 'button_a'
-    #   param: Control parameter ['assign', 'behaviour', 'cc/note', 'off', 'on']
+    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'off', 'on']
     #   value: Parameter value
     def set_control_parameter(self, group_offset, control, param, value):
         try:
@@ -630,7 +639,7 @@ def show_editor(ctrl, group=None):
         editor_midi_global.set(1)
 
     editor_assign.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'assign'))
-    editor_cmd.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'cc/note'))
+    editor_cmd.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'cmd'))
     editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'off'))
     editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'on'))
 
@@ -680,7 +689,7 @@ def on_editor_behaviour(*args):
 
 def on_editor_cmd(*args):
     try:
-        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cc/note', editor_cmd.get())
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cmd', editor_cmd.get())
     except:
         pass
 
@@ -843,7 +852,7 @@ def on_canvas_click(event):
             'slider': [0.04, 0.4, 0.06, 0.74],
             'solo': [0.00, 0.39, 0.03, 0.48],
             'mute': [0.00, 0.59, 0.03, 0.67],
-            'rec': [0.00, 0.76, 0.03, 0.86],
+            'prime': [0.00, 0.76, 0.03, 0.86],
         }
         transport_ctrl_coords = {
             'prev_track': [0.04, 0.45, 0.07, 0.50],
