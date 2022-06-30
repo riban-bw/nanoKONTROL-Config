@@ -558,6 +558,7 @@ def source_changed(event):
     send_device_search()
 
 
+
 # Handle MIDI destination change
 def destination_changed(event):
     name = jack_dest.get()
@@ -743,7 +744,6 @@ cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
 cmb_jack_dest.grid(row=2, column=1)
 cmb_jack_dest.bind('<Enter>', populate_asla_dest)
 
-ttk.Button(frame_top, text='Detect', command=send_device_search).grid(row=2, column=2)
 
 ttk.Button(frame_top, text="Get Scene", command=send_dump_request).grid(row=2, column=3)
 
