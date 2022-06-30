@@ -1,6 +1,12 @@
 # nanoKONTROL-Config
 Configuration tool for Korg nanoKONTROL written in Python.
 
+Supports nanoKONTROL1
+![image](https://user-images.githubusercontent.com/3158323/176722962-5d6357bc-19d7-40d4-ac93-a349c2638d7f.png)
+
+Supports nanoKONTROL2
+![image](https://user-images.githubusercontent.com/3158323/176722773-4486f484-3a57-41fa-b4a2-16d1f346d55d.png)
+
 This tool provides a graphical user interface allowing configuration of Korg nanoKONTROL1 and nanoKONTROL2 devices. Functionality is broadly similar to Korg's own configuration tool (which I have never seen!). This tool is cross platform and open source.
 
 MIDI connection is via JACK or ALSA (or both) hence a working JACK service and/or ALSA driver must be running before starting the application. It detects new MIDI ports so the device may be connected after starting the application.
