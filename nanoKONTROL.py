@@ -51,7 +51,7 @@ assign_options = ['Disabled', 'CC', 'Note']
 behaviour_options = ['Momentary', 'Toggle']
 control_map = {
     'nanoKONTROL1': {
-        'param map': {
+        'param_map': {
             'assign':[0, 2],
             'behaviour': [6, 1],
             'cc/note': [1, 127],
@@ -63,7 +63,7 @@ control_map = {
             'mmc id': [3, 127],
             'transport behaviour': [5, 1]
         },
-        'group map': {
+        'group_map': {
             'channel': 0,
             'slider': 1,
             'knob': 5,
@@ -80,14 +80,14 @@ control_map = {
         'transport': 224,
     },
     'nanoKONTROL2': {
-        'param map': {
+        'param_map': {
             'assign':[0, 2],
             'behaviour': [1, 1],
             'cc/note': [2, 127],
             'off': [3, 127],
             'on': [4, 127]
         },
-        'group map': {
+        'group_map': {
             'channel': 0,
             'slider': 1,
             'knob': 7,
@@ -335,22 +335,17 @@ class scene:
 
 
     # Get group MIDI channel
+    #   group_offset: Offset of the group within dataset
     #   returns: MIDI channel
-    def get_group_channel(self, group):
-        if group < len(control_map[self.device_type]['groups']):
-            group_offset = control_map[self.device_type]['groups'][group]
-            channel_offset = control_map[self.device_type]['group map']['channel']
-            return self.data[group_offset + channel_offset]
-        return 0
+    def get_group_channel(self, group_offset):
+        return self.data[group_offset]
 
 
     # Set group MIDI channel
+    #   group_offset: Offset of the group within dataset
     #   chan: MIDI channel
-    def set_group_channel(self, group, chan):
-        if group < len(control_map[self.device_type]['groups']) and chan <= 16:
-            group_offset = control_map[self.device_type]['groups'][group]
-            channel_offset = control_map[self.device_type]['group map']['channel']
-            self.data[group_offset + channel_offset] = chan
+    def set_group_channel(self, group_offset, chan):
+        self.data[group_offset] = chan
 
 
     # Get control parameter
@@ -360,8 +355,8 @@ class scene:
     #   returns: Parameter value or 0 if parameter not available
     def get_control_parameter(self, group_offset, control, param):
         try:
-            control_offset = control_map[self.device_type]['group map'][control]
-            param_offset = control_map[self.device_type]['param map'][param][0]
+            control_offset = control_map[self.device_type]['group_map'][control]
+            param_offset = control_map[self.device_type]['param_map'][param][0]
             return self.data[group_offset + control_offset + param_offset]
         except:
             return 0
@@ -374,9 +369,9 @@ class scene:
     #   value: Parameter value
     def set_control_parameter(self, group_offset, control, param, value):
         try:
-            control_offset = control_map[self.device_type]['group map'][control]
-            param_offset = control_map[self.device_type]['param map'][param][0]
-            param_max = control_map[self.device_type]['param map'][param][1]
+            control_offset = control_map[self.device_type]['group_map'][control]
+            param_offset = control_map[self.device_type]['param_map'][param][0]
+            param_max = control_map[self.device_type]['param_map'][param][1]
             if value > param_max:
                 return False
             self.data[group_offset + control_offset + param_offset] = value
@@ -384,30 +379,6 @@ class scene:
             return False
         return True
 
-
-    # Get configuration info about a control as text
-    #   control Name of control, e.g. "prime 1"
-    def get_info(self, control):
-        parts = control.split()
-        if parts[0] in ('slider', 'knob', 'button_a', 'solo', 'button_b', 'mute', 'button_c', 'prime'):
-            group = int(parts[1])
-            group_offset = control_map[self.device_type]['groups'][group]
-            title = parts[0].replace('_', ' ').capitalize() + " " + str(group + 1)
-        elif parts[0] in ('transport 1', 'prev_track', 'transport 2', 'next_track', 'transport 3', 'cycle', 'transport 4', 'set_marker', 'transport 5', 'prev_marker', 'transport 6', 'next_marker', 'transport 7', 'rew', 'transport 8', 'ff', 'transport 9', 'stop', 'play', 'rec'):
-            group_offset = control_map[self.device_type]['transport']
-            title = parts[0].replace('_', ' ').capitalize()
-        else:
-            return control
-        assign = assign_options[self.get_control_parameter(group_offset, parts[0], 'assign')]
-        cc_note = self.get_control_parameter(group_offset, parts[0], 'cc/note')
-        return "{}\n{}: {}\n{}\nMin: {}\nMax: {}".format(
-            title,
-            assign,
-            cc_note,
-            behaviour_options[self.get_control_parameter(group_offset, parts[0], 'behaviour')],
-            self.get_control_parameter(group_offset, parts[0], 'off'),
-            self.get_control_parameter(group_offset, parts[0], 'on')
-        )
 
 scene_data = scene()
 
@@ -616,6 +587,8 @@ def test_leds():
 #   ctrl: Name of the control to edit
 #   group: Control group or None (default) for transport controls
 def show_editor(ctrl, group=None):
+    global editor_midi_channel
+    global editor_midi_global
     global editor_group_offset
     global editor_assign
     global editor_behaviour
@@ -649,10 +622,26 @@ def show_editor(ctrl, group=None):
         lbl_editor_min['text'] = "Min"
         lbl_editor_max['text'] = "Max"
 
+    midi_chan = scene_data.get_group_channel(editor_group_offset)
+    if midi_chan < 16:
+        editor_midi_channel.set(midi_chan + 1)
+        editor_midi_global.set(0)
+    else:
+        editor_midi_global.set(1)
+
     editor_assign.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'assign'))
     editor_cmd.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'cc/note'))
     editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'off'))
     editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'on'))
+
+
+def on_editor_midi_chan(*args):
+    if editor_midi_global.get():
+        spn_chan['state'] = tk.DISABLED
+        scene_data.set_group_channel(editor_group_offset,  16)
+    else:
+        spn_chan['state'] = tk.NORMAL
+        scene_data.set_group_channel(editor_group_offset,  editor_midi_channel.get() - 1)
 
 
 def on_editor_assign(*args):
@@ -661,22 +650,25 @@ def on_editor_assign(*args):
     except:
         pass
     if editor_assign.get() == 0:
-        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max]:
+        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global]:
             ctrl['state'] = tk.DISABLED
     elif editor_assign.get() == 1:
-        for ctrl in [spn_cmd, spn_min, spn_max]:
+        for ctrl in [spn_cmd, spn_min, spn_max, chk_global]:
             ctrl['state'] = tk.NORMAL
-        if editor_ctrl not in ['slider', 'knob']:
-            rb_editor_momentary['state'] = tk.NORMAL
-            rb_editor_toggle['state'] = tk.NORMAL
         lbl_editor_cmd['text'] = 'CC'
     elif editor_assign.get() == 2:
-        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max]:
+        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global]:
             ctrl['state'] = tk.NORMAL
+        lbl_editor_cmd['text'] = 'Note'
+
+    if editor_assign.get():
         if editor_ctrl not in ['slider', 'knob']:
             rb_editor_momentary['state'] = tk.NORMAL
             rb_editor_toggle['state'] = tk.NORMAL
-        lbl_editor_cmd['text'] = 'Note'
+        if scene_data.get_group_channel(editor_group_offset) < 16:
+            spn_chan['state'] = tk.NORMAL
+        else:
+            spn_chan['state'] = tk.DISABLED
 
 
 def on_editor_behaviour(*args):
@@ -757,16 +749,13 @@ btn_test_leds.grid(row=0, column=5, rowspan=2)
 ttk.Button(frame_top, image=img_info, command=show_info).grid(row=0, column=6, rowspan=2)
 
 ## Control editor frame ##
+editor_midi_channel = tk.IntVar()
+editor_midi_global = tk.IntVar()
 editor_assign = tk.IntVar()
-editor_assign.trace('w', on_editor_assign)
 editor_behaviour = tk.IntVar()
-editor_behaviour.trace('w', on_editor_behaviour)
 editor_cmd = tk.IntVar()
-editor_cmd.trace('w', on_editor_cmd)
 editor_min = tk.IntVar()
-editor_min.trace('w', on_editor_min)
 editor_max = tk.IntVar()
-editor_max.trace('w', on_editor_max)
 editor_group_offset = 0
 editor_ctrl = ''
 
@@ -806,6 +795,20 @@ lbl_editor_max = tk.Label(frame_editor, text="On")
 lbl_editor_max.grid(row=3, column=2, sticky='w')
 spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
 spn_max.grid(row=4, column=2, sticky='ew')
+tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0)
+spn_chan = tk.Spinbox(frame_editor, from_=1, to=16, textvariable=editor_midi_channel, width=3)
+spn_chan.grid(row=5, column=1, sticky='ew')
+chk_global = tk.Checkbutton(frame_editor, text="Global", variable=editor_midi_global)
+chk_global.grid(row=5, column=2, sticky='wsn')
+
+# Configure variable change event handlers
+editor_midi_channel.trace('w', on_editor_midi_chan)
+editor_midi_global.trace('w', on_editor_midi_chan)
+editor_assign.trace('w', on_editor_assign)
+editor_behaviour.trace('w', on_editor_behaviour)
+editor_cmd.trace('w', on_editor_cmd)
+editor_min.trace('w', on_editor_min)
+editor_max.trace('w', on_editor_max)
 
 
 # Handle mouse click on image
