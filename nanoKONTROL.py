@@ -388,7 +388,7 @@ scene_data = scene()
 def send_midi(msg):
     global ev
     try:
-        alsa_client.event_output(alsa_midi.SysExEvent(bytes(msg)), port=alsa_midi_out)
+        alsa_client.event_output(alsa_midi.MidiBytesEvent(bytes(msg)), port=alsa_midi_out)
         alsa_client.drain_output()
     except:
         pass # ALSA failed but let's try JACk as well
@@ -442,7 +442,6 @@ def send_query_mode():
     send_command_list([0x1F, 0x12, 0x00])
 
 
-
 # Request a scene change (nanoKONTROL1)
 #   scene: Requested scene [0..3]
 def send_scene_change_request(scene):
@@ -465,22 +464,61 @@ def send_port_detect():
 
 ## UI ##
 
-# Handle jack source change
-def jack_source_changed(event):
-    midi_in.disconnect()
+# Handle MIDI source change
+def source_changed(event):
+    name = jack_source.get()
+    if name not in source_ports:
+        return
     try:
-        midi_in.connect(jack_source.get())
+        midi_in.disconnect()
     except Exception as e:
-        logging.warning(e)
+        pass
+    try:
+        ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
+        for port in ports:
+            try:
+                alsa_midi_in.disconnect_from(port)
+            except Exception as e:
+                pass # Ignore any unconnected ports
+    except:
+        pass # ALSA may not be enabled
+
+    try:
+        if source_ports[name][0] == 'jack':
+            midi_in.connect(source_ports[name][1])
+        elif source_ports[name][0] == 'alsa':
+            alsa_midi_in.connect_from(source_ports[name][1])
+    except Exception as e:
+        pass
 
 
-# Handle jack destination change
-def jack_dest_changed(event):
-    midi_out.disconnect()
+# Handle MIDI destination change
+def destination_changed(event):
+    name = jack_dest.get()
+    if name not in destination_ports:
+        return
     try:
-        midi_out.connect(jack_dest.get())
+        midi_out.disconnect()
     except Exception as e:
-        logging.warning(e)
+        pass
+    ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
+    try:
+        for port in ports:
+            try:
+                alsa_midi_out.disconnect_to(port)
+            except Exception as e:
+                pass # Ignore any unconnected ports
+    except:
+        pass # ALSA may not be enabled
+
+    try:
+        if destination_ports[name][0] == 'jack':
+            midi_out.connect(destination_ports[name][1])
+        elif destination_ports[name][0] == 'alsa':
+            #TODO: There may be several ports with same name - this fails!
+            alsa_midi_out.connect_to(destination_ports[name][1])
+    except Exception as e:
+        pass
 
 
 # Handle device search request button
@@ -613,7 +651,7 @@ frame_top.grid(row=1, columnspan=2, sticky='enw')
 jack_source = tk.StringVar()
 ttk.Label(frame_top, text="MIDI input").grid(row=1, column=0, sticky='w')
 cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
-cmb_jack_source.bind('<<ComboboxSelected>>', jack_source_changed)
+cmb_jack_source.bind('<<ComboboxSelected>>', source_changed)
 cmb_jack_source.grid(row=2, column=0)
 
 txt_midi_in = tk.StringVar()
@@ -623,7 +661,7 @@ lbl_midi_in.grid(row=3, column=0, columnspan=2, sticky='ew')
 jack_dest = tk.StringVar()
 ttk.Label(frame_top, text="MIDI output").grid(row=1, column=1, sticky='w')
 cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
-cmb_jack_dest.bind('<<ComboboxSelected>>', jack_dest_changed)
+cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
 cmb_jack_dest.grid(row=2, column=1)
 
 device_type = tk.StringVar(value='-')
@@ -848,6 +886,20 @@ def handle_midi_input(indata):
         # Native mode
         pass
 
+source_ports = {}
+destination_ports = {}
+
+def update_ports():
+    values = []
+    for port in source_ports:
+        values.append(port)
+    cmb_jack_source['values'] = values
+    values = []
+    for port in destination_ports:
+        values.append(port)
+    cmb_jack_dest['values'] = values
+
+
 ##########
 ## JACK ##
 ##########
@@ -874,30 +926,49 @@ if jack_client:
         global cmb_jack_source
         global cmb_jack_dest
 
-        jack_source_ports = []
         ports = jack_client.get_ports(is_midi=True, is_output=True)
         ports.remove(midi_out)
         for port in ports:
-            jack_source_ports.append(port.name)
-        cmb_jack_source['values'] = jack_source_ports
+            source_ports[port.name] = ['jack', port]
 
         jack_dest_ports = []
         ports = jack_client.get_ports(is_midi=True, is_input=True)
         ports.remove(midi_in)
         for port in ports:
-            jack_dest_ports.append(port.name)
-        cmb_jack_dest['values'] = jack_dest_ports
+            destination_ports[port.name] = ['jack', port]
+
+        update_ports()
 
     # Activate jack client and get available MIDI ports
     jack_client.activate()
 
-# ALSA MIDI input 
+
+###############
+## ALSA MIDI ##
+###############
+
+def populate_asla_ports():
+    #TODO: Trigger this on changes to alsa graph
+    ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
+    for port in ports:
+        name = port.client_name + ":" + port.name
+        source_ports[name] = ['alsa', port]
+    
+    ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
+    for port in ports:
+        name = port.client_name + ":" + port.name
+        destination_ports[name] = ['alsa', port]
+
+    update_ports()
+
+
 def alsa_midi_in_thread():
     while True:
-        event = alsa_client.event_input()
-        if event.type == alsa_midi.EventType.SYSEX:
-            handle_midi_input(event.data)
-        print(repr(event))
+        event = alsa_client.event_input(prefer_bytes=True)
+        try:
+            handle_midi_input(event.midi_bytes)
+        except:
+            print(repr(event))
 
 
 if alsa_client:
@@ -905,6 +976,7 @@ if alsa_client:
     alsa_thread.name = "alsa_in"
     alsa_thread.daemon = True
     alsa_thread.start()
+    populate_asla_ports()
 
 set_device_type('nanoKONTROL2')
 show_editor('slider', 0)
