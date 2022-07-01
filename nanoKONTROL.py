@@ -47,6 +47,19 @@ except:
 ev = None
 echo_id = 0x00
 
+mmc_commands = ['Stop',
+    'Play',
+    'Deferred Play',
+    'Fast Forward',
+    'Rewind',
+    'Record Strobe',
+    'Record Exit',
+    'Record Pause',
+    'Pause',
+    'Eject',
+    'Chase',
+    'Command Error Reset',
+    'MMC Reset']
 assign_options = ['Disabled', 'CC', 'Note']
 behaviour_options = ['Momentary', 'Toggle']
 control_map = {
@@ -55,8 +68,8 @@ control_map = {
             'assign':[0, 2],
             'behaviour': [6, 1],
             'cmd': [1, 127],
-            'off': [2, 127],
-            'on': [3, 127],
+            'min': [2, 127],
+            'max': [3, 127],
             'attack': [4, 127],
             'decay': [5, 127],
             'mmc_cmd': [2, 12],
@@ -73,8 +86,8 @@ control_map = {
             'play': 6,
             'ff': 11,
             'cycle': 16,
-            'play': 21,
-            'stop': 26,
+            'stop': 21,
+            'rec': 26,
         },
         'groups': [16, 32, 48, 64, 80, 96, 112, 128, 144],
         'transport': 224,
@@ -84,8 +97,8 @@ control_map = {
             'assign':[0, 2],
             'behaviour': [1, 1],
             'cmd': [2, 127],
-            'off': [3, 127],
-            'on': [4, 127]
+            'min': [3, 127],
+            'max': [4, 127]
         },
         'group_map': {
             'channel': 0,
@@ -181,8 +194,8 @@ class scene:
                 for i, control in enumerate(('slider', 'knob', 'button_a', 'button_b')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
                     self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group) #TODO: What is the default CC?
-                    self.set_control_parameter(group_offset, control, 'off', 0)
-                    self.set_control_parameter(group_offset, control, 'on', 127)
+                    self.set_control_parameter(group_offset, control, 'min', 0)
+                    self.set_control_parameter(group_offset, control, 'max', 127)
                 for i, control in enumerate(('button_a', 'button_b')):
                     self.set_control_parameter(group_offset, control, 'behaviour', 0)
                     self.set_control_parameter(group_offset, control, 'attack', 0) #TODO: What is the default attack value
@@ -191,8 +204,8 @@ class scene:
                 for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
                     self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group)
-                    self.set_control_parameter(group_offset, control, 'off', 0)
-                    self.set_control_parameter(group_offset, control, 'on', 127)
+                    self.set_control_parameter(group_offset, control, 'min', 0)
+                    self.set_control_parameter(group_offset, control, 'max', 127)
                     self.set_control_parameter(group_offset, control, 'behaviour', 0)
 
         transport_offset = control_map[self.device_type]['transport']
@@ -200,12 +213,10 @@ class scene:
         if self.device_type == 'nanoKONTROL1':
             for i, control in enumerate(('stop', 'play', 'cycle', 'ff', 'rew', 'rec')):
                 transport_offset = control_map[self.device_type]['transport']
-                self.set_control_parameter(transport_offset, control, 'assign', 1) #TODO: V1 transport button options are disabled, CC, MCC
+                self.set_control_parameter(transport_offset, control, 'assign', 2)
                 self.set_control_parameter(transport_offset, control, 'cmd', i)
                 self.set_control_parameter(transport_offset, control, 'mmc_cmd', i)
                 self.set_control_parameter(transport_offset, control, 'mmc_id', 0)
-                self.set_control_parameter(transport_offset, control, 'off', 0)
-                self.set_control_parameter(transport_offset, control, 'on', 127)
                 self.set_control_parameter(transport_offset, control, 'behaviour', 0)
 
 
@@ -217,8 +228,8 @@ class scene:
                     self.set_control_parameter(transport_offset, control, 'cmd',  0x29 + i)
                 else:
                     self.set_control_parameter(transport_offset, control, 'cmd',  0x34 + i)
-                self.set_control_parameter(transport_offset, control, 'off', 0)
-                self.set_control_parameter(transport_offset, control, 'on', 127)
+                self.set_control_parameter(transport_offset, control, 'min', 0)
+                self.set_control_parameter(transport_offset, control, 'max', 127)
                 self.set_control_parameter(transport_offset, control, 'behaviour', 0)
 
             self.set_led_mode(1)
@@ -267,6 +278,7 @@ class scene:
     # Get scene name
     #   returns: Scene name
     #   nanoKONTROL1 only
+    #TODO: What is scene name used for?
     def get_scene_name(self):
         name = ""
         if self.device_type == 'nanoKONTROL1':
@@ -360,7 +372,7 @@ class scene:
     # Get control parameter
     #   group_offset: Offset of group / transport
     #   control: Control name, e.g. 'button_a'
-    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'off', 'on']
+    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'min', 'max']
     #   returns: Parameter value or 0 if parameter not available
     def get_control_parameter(self, group_offset, control, param):
         try:
@@ -374,7 +386,7 @@ class scene:
     # Set control parameter
     #   group_offset: Offset of group / transport
     #   control: Control name, e.g. 'button_a'
-    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'off', 'on']
+    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'min', 'max']
     #   value: Parameter value
     def set_control_parameter(self, group_offset, control, param, value):
         try:
@@ -476,7 +488,6 @@ def send_port_detect():
 source_ports = {}
 destination_ports = {}
 
-
 def populate_asla_source(event):
     global source_ports
     ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
@@ -546,7 +557,6 @@ def source_changed(event):
     send_device_search()
 
 
-
 # Handle MIDI destination change
 def destination_changed(event):
     name = jack_dest.get()
@@ -576,7 +586,9 @@ def destination_changed(event):
         pass
     send_device_search()
 
+
 # Blink each LED
+#TODO: Do we need to test LEDs? This is blocking and makes app unresponsive for 3s
 def test_leds():
     for led in range(0x29, 0x2F):
         send_midi([0xBF, led, 0x7F])
@@ -605,6 +617,8 @@ def show_editor(ctrl, group=None):
     global editor_min
     global editor_max
     global editor_ctrl
+    global editor_mmc_cmd
+    global editor_mmc_id
 
     editor_ctrl = ctrl
     is_button = editor_ctrl not in ('knob', 'slider')
@@ -621,15 +635,15 @@ def show_editor(ctrl, group=None):
         editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
         rb_editor_momentary['state'] = tk.NORMAL
         rb_editor_toggle['state'] = tk.NORMAL
-        lbl_editor_min['text'] = "Off"
-        lbl_editor_max['text'] = "On"
+        lbl_min['text'] = "Off"
+        lbl_max['text'] = "On"
 
     else:
         rb_editor_note['state'] = tk.DISABLED
         rb_editor_momentary['state'] = tk.DISABLED
         rb_editor_toggle['state'] = tk.DISABLED
-        lbl_editor_min['text'] = "Min"
-        lbl_editor_max['text'] = "Max"
+        lbl_min['text'] = "Min"
+        lbl_max['text'] = "Max"
 
     midi_chan = scene_data.get_group_channel(editor_group_offset)
     if midi_chan < 16:
@@ -638,10 +652,42 @@ def show_editor(ctrl, group=None):
     else:
         editor_midi_global.set(1)
 
+    if scene_data.device_type == 'nanoKONTROL1' and group is None:
+        rb_editor_note['text'] = 'MMC'
+        if editor_assign.get() == 2:
+            lbl_cmd['text'] = 'MMC Command'
+            lbl_min.grid_remove()
+        else:
+            lbl_cmd['text'] = 'CC'
+            lbl_min.grid()
+        lbl_max['text'] = 'Device ID'
+        spn_cmd.grid_remove()
+        spn_min.grid_remove()
+        spn_max.grid_remove()
+        cmb_mmc_cmd.grid(row=4, column=0, columnspan=2, sticky='ew')
+        spn_mmc_id.grid()
+    else:
+        rb_editor_note['text'] = 'Note'
+        if editor_assign.get() == 2:
+            lbl_cmd['text'] = 'Note'
+        else:
+            lbl_cmd['text'] = 'CC'
+        lbl_min.grid()
+        spn_cmd.grid()
+        spn_min.grid()
+        spn_max.grid()
+        cmb_mmc_cmd.grid_remove()
+        spn_mmc_id.grid_remove()
+
+
     editor_assign.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'assign'))
     editor_cmd.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'cmd'))
-    editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'off'))
-    editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'on'))
+    editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'min'))
+    editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'max'))
+    mmc_cmd_index = scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_cmd')
+    mmc_cmd = mmc_commands[mmc_cmd_index]
+    editor_mmc_cmd.set(mmc_cmd)
+    editor_mmc_id.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id'))
 
 
 def on_editor_midi_chan(*args):
@@ -659,16 +705,33 @@ def on_editor_assign(*args):
     except:
         pass
     if editor_assign.get() == 0:
+        # Disabled
         for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global]:
             ctrl['state'] = tk.DISABLED
     elif editor_assign.get() == 1:
-        for ctrl in [spn_cmd, spn_min, spn_max, chk_global]:
+        # CC
+        for ctrl in [spn_cmd, spn_min, spn_max, chk_global, lbl_cmd]:
             ctrl['state'] = tk.NORMAL
-        lbl_editor_cmd['text'] = 'CC'
+        lbl_cmd['text'] = 'CC'
+        if editor_ctrl in ['knob', 'slider']:
+            lbl_max['text'] = 'Max'
+        else:
+            lbl_max['text'] = 'On'
+        cmb_mmc_cmd.grid_remove()
+        spn_cmd.grid()
+        spn_min.grid()
     elif editor_assign.get() == 2:
+        # Note / MMC
         for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global]:
             ctrl['state'] = tk.NORMAL
-        lbl_editor_cmd['text'] = 'Note'
+        if editor_group_offset == control_map[scene_data.device_type]['transport']:
+            lbl_cmd['text'] = 'MMC Command'
+            if scene_data.device_type == 'nanoKONTROL1':
+                cmb_mmc_cmd.grid()
+                spn_cmd.grid_remove()
+                spn_min.grid_remove()
+        else:
+            lbl_cmd['text'] = 'Note'
 
     if editor_assign.get():
         if editor_ctrl not in ['slider', 'knob']:
@@ -696,14 +759,28 @@ def on_editor_cmd(*args):
 
 def on_editor_min(*args):
     try:
-        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'off', editor_min.get())
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'min', editor_min.get())
     except:
         pass
 
 
 def on_editor_max(*args):
     try:
-        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'on', editor_max.get())
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'max', editor_max.get())
+    except:
+        pass
+
+def on_editor_mmc_cmd(*args):
+    try:
+        mmc_cmd_index = mmc_commands.index(editor_mmc_cmd.get())
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'mmc_cmd', mmc_cmd_index)
+    except:
+        pass
+
+
+def on_editor_mmc_id(*args):
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id', editor_mmc_id.get())
     except:
         pass
 
@@ -767,43 +844,53 @@ editor_min = tk.IntVar()
 editor_max = tk.IntVar()
 editor_group_offset = 0
 editor_ctrl = ''
+editor_mmc_cmd = tk.StringVar()
+editor_mmc_id = tk.IntVar()
+editor_title = tk.StringVar()
 
 frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
 frame_editor.grid(row=2, column=1, sticky='nw')
-frame_editor.columnconfigure(0, weight=1)
-
-editor_title = tk.StringVar()
+frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
+frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
+frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
 
 tk.Label(frame_editor, textvariable=editor_title, bg='#bf64ed').grid(row=0, column=0, columnspan=6, sticky='wne')
+
 frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
 frame_assign.grid(row=1, columnspan=6, sticky='ew')
+
 tk.Radiobutton(frame_assign, text="Disabled", variable=editor_assign, value=0).grid(row=0, column=0)
-tk.Radiobutton(frame_assign, text="CC", variable=editor_assign, value=1).grid(row=0, column=1)
+rb_editor_cmd = tk.Radiobutton(frame_assign, text="CC", variable=editor_assign, value=1)
+rb_editor_cmd.grid(row=0, column=1)
 rb_editor_note = tk.Radiobutton(frame_assign, text="Note", variable=editor_assign, value=2)
 rb_editor_note.grid(row=0, column=2)
 
 frame_behaviour = tk.Frame(frame_editor, bd=2, relief='groove')
 frame_behaviour.grid(row=2, columnspan=6, sticky='ew')
+
 rb_editor_momentary = tk.Radiobutton(frame_behaviour, text="Momentary", variable=editor_behaviour, value=0)
 rb_editor_momentary.grid(row=0, column=0, sticky='w')
 rb_editor_toggle = tk.Radiobutton(frame_behaviour, text="Toggle", variable=editor_behaviour, value=1)
 rb_editor_toggle.grid(row=0, column=1, sticky='w')
 
-frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
-frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
-frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
-lbl_editor_cmd = tk.Label(frame_editor, text="CC")
-lbl_editor_cmd.grid(row=3, column=0, sticky='w')
+lbl_cmd = tk.Label(frame_editor, text="CC")
+lbl_cmd.grid(row=3, column=0, sticky='w')
+lbl_min = tk.Label(frame_editor, text="Min")
+lbl_min.grid(row=3, column=1, sticky='w')
+lbl_max = tk.Label(frame_editor, text="Max")
+lbl_max.grid(row=3, column=2, sticky='w')
+
+cmb_mmc_cmd = ttk.Combobox(frame_editor, textvariable=editor_mmc_cmd, state='readonly', values=mmc_commands)
+spn_mmc_id = tk.Spinbox(frame_editor, from_=0, to=127, textvar=editor_mmc_id, width=3)
+spn_mmc_id.grid(row=4, column=2, sticky='w')
+spn_mmc_id.grid_remove()
 spn_cmd = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3)
 spn_cmd.grid(row=4, column=0, sticky='ew')
-lbl_editor_min = tk.Label(frame_editor, text="Off")
-lbl_editor_min.grid(row=3, column=1, sticky='w')
 spn_min = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3)
 spn_min.grid(row=4, column=1, sticky='ew')
-lbl_editor_max = tk.Label(frame_editor, text="On")
-lbl_editor_max.grid(row=3, column=2, sticky='w')
 spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
 spn_max.grid(row=4, column=2, sticky='ew')
+
 tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0)
 spn_chan = tk.Spinbox(frame_editor, from_=1, to=16, textvariable=editor_midi_channel, width=3)
 spn_chan.grid(row=5, column=1, sticky='ew')
@@ -818,6 +905,8 @@ editor_behaviour.trace('w', on_editor_behaviour)
 editor_cmd.trace('w', on_editor_cmd)
 editor_min.trace('w', on_editor_min)
 editor_max.trace('w', on_editor_max)
+editor_mmc_cmd.trace('w', on_editor_mmc_cmd)
+editor_mmc_id.trace('w', on_editor_mmc_id)
 
 
 # Handle mouse click on image
@@ -886,11 +975,13 @@ def on_canvas_click(event):
             if x > group_offset_x + group_ctrl_coords[ctrl][0] and y > group_ctrl_coords[ctrl][1] and x < group_offset_x + group_ctrl_coords[ctrl][2] and y < group_ctrl_coords[ctrl][3]:
                 #print("Clicked on control {} {}".format(ctrl, group + 1))
                 show_editor(ctrl, group)
+                break
     else:
         for ctrl in transport_ctrl_coords:
             if x > transport_ctrl_coords[ctrl][0] and y > transport_ctrl_coords[ctrl][1] and x < transport_ctrl_coords[ctrl][2] and y < transport_ctrl_coords[ctrl][3]:
                 #print("Clicked on control {}".format(ctrl))
                 show_editor(ctrl)
+                break
 
 ## Device image ##
 img1 = ImageTk.PhotoImage(Image.open('nanoKONTROL1.png').resize((800,250), Image.ANTIALIAS))
