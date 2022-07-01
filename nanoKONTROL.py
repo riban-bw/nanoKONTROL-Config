@@ -5,23 +5,16 @@
 #
 # Dependencies: tkinter, jack, PIL, ImageTk
 
-credits = [
-    "Icons:",
-    "https://freeicons.io",
-    "profile/5790", # Transfer, Lamp, Save
-    "profile/3335" # Info
-]
-
 import struct
 from tkinter import messagebox
 try:
     import jack
 except:
-    logging.warning("Cannot import jack")
+    pass
 try:
     import alsa_midi 
 except:
-    logging.warning("Cannot import alsa-midi")
+    pass
 import tkinter as tk
 from tkinter import ttk
 import logging
@@ -29,25 +22,20 @@ from time import sleep
 from PIL import ImageTk, Image
 from threading import Thread
 
-jack_client = None
-try:
-    jack_client = jack.Client('riban-nanoKonfig')
-    midi_in = jack_client.midi_inports.register('in')
-    midi_out = jack_client.midi_outports.register('out')
-except:
-    logging.warning('Cannot initalise jack client')
+ev = None # Used to pass MIDI messages for JACK to transmit
+echo_id = 0x00 # Used to identify own sysex messages
 
-alsa_client = None
-try:
-    alsa_client = alsa_midi.SequencerClient('riban-nanoKonfig')
-    alsa_midi_in = alsa_client.create_port('in', caps=alsa_midi.WRITE_PORT)
-    alsa_midi_out = alsa_client.create_port('out', caps=alsa_midi.READ_PORT)
-except:
-    logging.warning('Cannot initialise alsa client')
-ev = None
-echo_id = 0x00
+credits = [
+    'Code:',
+    'brian@riban.co.uk',
+    'Icons:',
+    'https://freeicons.io',
+    'profile/5790', # Transfer, Lamp, Save
+    'profile/3335' # Info
+]
 
-mmc_commands = ['Stop',
+mmc_commands = [
+    'Stop',
     'Play',
     'Deferred Play',
     'Fast Forward',
@@ -59,9 +47,19 @@ mmc_commands = ['Stop',
     'Eject',
     'Chase',
     'Command Error Reset',
-    'MMC Reset']
-assign_options = ['Disabled', 'CC', 'Note']
-behaviour_options = ['Momentary', 'Toggle']
+    'MMC Reset'
+]
+
+assign_options = [
+    'Disabled',
+    'CC', 'Note'
+]
+
+behaviour_options = [
+    'Momentary',
+    'Toggle'
+]
+
 control_map = {
     'nanoKONTROL1': {
         'param_map': {
@@ -148,7 +146,7 @@ control_map = {
     }
 }
 
-
+## Scene class encapsulates a nanoKONTROL scene data structure ##
 class scene:
     def __init__(self):
         self.global_midi_chan = 0 # Global MIDI channel (0 based)
@@ -166,8 +164,11 @@ class scene:
         self.set_device_type('nanoKONTROL2')
 
 
+    # Get the (4 byte) sysex segment defining the device type
+    #   returns: Device ID as 4 byte list
     def get_sysex_id(self):
         return self.device_types[self.device_type]['sysex_id']
+
 
     # Set the device type
     #   type: Device type ['nanoKONTROL1', 'nanoKONTROL2']
@@ -180,17 +181,17 @@ class scene:
 
     # Reset scene data to default values
     def reset_data(self):
-        if self.device_type == "nanoKONTROL1":
+        if self.device_type == 'nanoKONTROL1':
             self.data = [0] * 256
-            self.set_scene_name("Scene 0")
-        elif self.device_type == "nanoKONTROL2":
+            self.set_scene_name('Scene 0')
+        elif self.device_type == 'nanoKONTROL2':
             self.data = [0] * 339
             self.set_control_mode(0)
             self.set_led_mode(0)
         self.set_global_channel(15)
         for group, group_offset in enumerate(control_map[self.device_type]['groups']):
             self.set_group_channel(group_offset, 16)
-            if self.device_type == "nanoKONTROL1":
+            if self.device_type == 'nanoKONTROL1':
                 for i, control in enumerate(('slider', 'knob', 'button_a', 'button_b')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
                     self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group) #TODO: What is the default CC?
@@ -200,7 +201,7 @@ class scene:
                     self.set_control_parameter(group_offset, control, 'behaviour', 0)
                     self.set_control_parameter(group_offset, control, 'attack', 0) #TODO: What is the default attack value
                     self.set_control_parameter(group_offset, control, 'decay', 0) #TODO: What is the default decay value
-            elif self.device_type == "nanoKONTROL2":
+            elif self.device_type == 'nanoKONTROL2':
                 for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime')):
                     self.set_control_parameter(group_offset, control, 'assign', 1)
                     self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group)
@@ -265,7 +266,7 @@ class scene:
     #   data: raw 7-bit MIDI data (multiple 8 x 7-bit blocks of data)
     def set_data(self, data):
         if len(data) != self.device_types[self.device_type]['sysex_len']:
-            logging.warning("Received wrong length data dump")
+            logging.warning('Received wrong length data dump')
             return
         i = 0
         for offset in range(0, len(data), 8):
@@ -280,7 +281,7 @@ class scene:
     #   nanoKONTROL1 only
     #TODO: What is scene name used for?
     def get_scene_name(self):
-        name = ""
+        name = ''
         if self.device_type == 'nanoKONTROL1':
             for c in self.data[:12]:
                 name += chr(c)
@@ -296,7 +297,7 @@ class scene:
                 if i < len(name):
                     self.data[i] = ord(name[i])
                 else:
-                    self.data[i] = ord(" ")
+                    self.data[i] = ord(' ')
 
 
     # Get global MIDI channel
@@ -401,10 +402,8 @@ class scene:
         return True
 
 
-scene_data = scene()
-
-## MIDI messages sent from software to device ##
-
+# Send a MIDI message to all connected devices
+#   msg: Raw MIDI data as list of integers
 def send_midi(msg):
     global ev
     try:
@@ -412,8 +411,10 @@ def send_midi(msg):
         alsa_client.drain_output()
     except:
         pass # ALSA failed but let's try JACk as well
-    ev = msg.copy()
+    ev = msg.copy() #TODO: Implement queue for JACK MIDI send
 
+
+## Device specific MIDI messages - send from application to device ##
 
 # Send Inquiry Message Request
 def send_inquiry():
@@ -441,6 +442,7 @@ def send_dump_request():
 
 # Request current temporary scene data be saved on device
 #   scene: Index of scene to save [0..3, Default: 0]
+#TODO: Handle different scenes on nanoKONTROL1 - maybe use SCENE button on img indcating current scene with LED on img
 def send_scene_write_request(scene=0):
     if scene < 0 or scene > 3:
         return
@@ -448,6 +450,7 @@ def send_scene_write_request(scene=0):
 
 
 # Request native mode in (nanoKONTROL2)
+#TODO: Implement native mode on nanoKONTROL2
 def send_native_mode():
     send_command_list([0x00, 0x00, 0x00])
 
@@ -469,7 +472,7 @@ def send_scene_change_request(scene):
         send_command_list([0x1F, 0x14, scene, 0xF7])
 
 
-# Upload a scene to device "current scene"
+# Upload a scene to device 'current scene'
 # Must write scene to save to persistent memory
 def send_scene_data():
     if scene_data.device_type == 'nanoKONTROL1':
@@ -483,11 +486,9 @@ def send_port_detect():
     send_command_list([0x1E, 0x00, echo_id])
 
 
-## UI ##
+## UI  Functions ##
 
-source_ports = {}
-destination_ports = {}
-
+# Add and remove ALSA ports to global list of source ports 
 def populate_asla_source(event):
     global source_ports
     ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
@@ -497,11 +498,12 @@ def populate_asla_source(event):
             temp_ports[port] = source_ports[port]
     source_ports = temp_ports
     for port in ports:
-        name = port.client_name + ":" + port.name
+        name = port.client_name + ':' + port.name
         source_ports[name] = ['alsa', port]
     update_ports()
 
 
+# Add and remove ALSA ports to global list of destination ports 
 def populate_asla_dest(event):
     global destination_ports
     ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
@@ -511,12 +513,12 @@ def populate_asla_dest(event):
             temp_ports[port] = destination_ports[port]
     destination_ports = temp_ports
     for port in ports:
-        name = port.client_name + ":" + port.name
+        name = port.client_name + ':' + port.name
         destination_ports[name] = ['alsa', port]
     update_ports()
 
 
-# Update list of MIDI ports
+# Update drop-down lists of MIDI ports
 def update_ports():
     values = []
     for port in source_ports:
@@ -528,13 +530,13 @@ def update_ports():
     cmb_jack_dest['values'] = values
 
 
-# Handle MIDI source change
+# Handle selection from MIDI source drop-down list
 def source_changed(event):
     name = jack_source.get()
     if name not in source_ports:
         return
     try:
-        midi_in.disconnect()
+        jack_midi_in.disconnect()
     except Exception as e:
         pass
     try:
@@ -549,7 +551,7 @@ def source_changed(event):
 
     try:
         if source_ports[name][0] == 'jack':
-            midi_in.connect(source_ports[name][1])
+            jack_midi_in.connect(source_ports[name][1])
         elif source_ports[name][0] == 'alsa':
             alsa_midi_in.connect_from(source_ports[name][1])
     except Exception as e:
@@ -557,13 +559,13 @@ def source_changed(event):
     send_device_search()
 
 
-# Handle MIDI destination change
+# Handle selection from MIDI destination drop-down list
 def destination_changed(event):
     name = jack_dest.get()
     if name not in destination_ports:
         return
     try:
-        midi_out.disconnect()
+        jack_midi_out.disconnect()
     except Exception as e:
         pass
     ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
@@ -578,16 +580,15 @@ def destination_changed(event):
 
     try:
         if destination_ports[name][0] == 'jack':
-            midi_out.connect(destination_ports[name][1])
+            jack_midi_out.connect(destination_ports[name][1])
         elif destination_ports[name][0] == 'alsa':
-            #TODO: There may be several ports with same name - this fails!
             alsa_midi_out.connect_to(destination_ports[name][1])
     except Exception as e:
         pass
     send_device_search()
 
 
-# Blink each LED
+# Blink each LED on device
 #TODO: Do we need to test LEDs? This is blocking and makes app unresponsive for 3s
 def test_leds():
     for led in range(0x29, 0x2F):
@@ -604,10 +605,10 @@ def test_leds():
             sleep(0.05)
 
 
-# Show the control editor
+# Populate the control editor and connect to a control to edit
 #   ctrl: Name of the control to edit
 #   group: Control group or None (default) for transport controls
-def show_editor(ctrl, group=None):
+def populate_editor(ctrl, group=None):
     global editor_midi_channel
     global editor_midi_global
     global editor_group_offset
@@ -635,15 +636,15 @@ def show_editor(ctrl, group=None):
         editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
         rb_editor_momentary['state'] = tk.NORMAL
         rb_editor_toggle['state'] = tk.NORMAL
-        lbl_min['text'] = "Off"
-        lbl_max['text'] = "On"
+        lbl_min['text'] = 'Off'
+        lbl_max['text'] = 'On'
 
     else:
         rb_editor_note['state'] = tk.DISABLED
         rb_editor_momentary['state'] = tk.DISABLED
         rb_editor_toggle['state'] = tk.DISABLED
-        lbl_min['text'] = "Min"
-        lbl_max['text'] = "Max"
+        lbl_min['text'] = 'Min'
+        lbl_max['text'] = 'Max'
 
     midi_chan = scene_data.get_group_channel(editor_group_offset)
     if midi_chan < 16:
@@ -690,6 +691,7 @@ def show_editor(ctrl, group=None):
     editor_mmc_id.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id'))
 
 
+# Handle change of editor MIDI channel
 def on_editor_midi_chan(*args):
     if editor_midi_global.get():
         spn_chan['state'] = tk.DISABLED
@@ -699,6 +701,7 @@ def on_editor_midi_chan(*args):
         scene_data.set_group_channel(editor_group_offset,  editor_midi_channel.get() - 1)
 
 
+# Handle change of editor assign (control mode)
 def on_editor_assign(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'assign', editor_assign.get())
@@ -743,6 +746,7 @@ def on_editor_assign(*args):
             spn_chan['state'] = tk.DISABLED
 
 
+# Handle change of editor behaviour
 def on_editor_behaviour(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
@@ -750,6 +754,7 @@ def on_editor_behaviour(*args):
         pass
 
 
+# Handle change of editor command (CC/Note/MMC)
 def on_editor_cmd(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cmd', editor_cmd.get())
@@ -757,6 +762,7 @@ def on_editor_cmd(*args):
         pass
 
 
+# Handle change of editor min/off
 def on_editor_min(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'min', editor_min.get())
@@ -764,12 +770,15 @@ def on_editor_min(*args):
         pass
 
 
+# Handle change of editor max/on
 def on_editor_max(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'max', editor_max.get())
     except:
         pass
 
+
+# Handle change of editor MMC command
 def on_editor_mmc_cmd(*args):
     try:
         mmc_cmd_index = mmc_commands.index(editor_mmc_cmd.get())
@@ -778,6 +787,7 @@ def on_editor_mmc_cmd(*args):
         pass
 
 
+# Handle change of editor MMC device ID
 def on_editor_mmc_id(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id', editor_mmc_id.get())
@@ -785,6 +795,7 @@ def on_editor_mmc_id(*args):
         pass
 
 
+# Show application info (about...)
 def show_info():
     msg = 'nanoKONTROL-Config\nriban 2022\n'
     for credit in credits:
@@ -792,138 +803,14 @@ def show_info():
     messagebox.showinfo('About...', msg)
 
 
+# Resize the device image
 def resize_image(event):
     global canvas_img
     canvas_img = ImageTk.PhotoImage(img.resize((event.width, event.height), Image.ANTIALIAS))
     canvas.itemconfig(device_image, image=canvas_img)
 
 
-## Root window ##
-root = tk.Tk()
-root.grid_columnconfigure(0, weight=1)
-#root.grid_columnconfigure(2, weight=2)
-root.grid_rowconfigure(2, weight=1)
-root.title("riban nanoKONTROL editor")
-
-tk.Label(root, text="riban nanoKONTROL editor", bg='#80cde0').grid(columnspan=2, sticky='ew')
-
-# icons #
-img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'), Image.ANTIALIAS)
-img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Image.ANTIALIAS)
-img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.ANTIALIAS)
-img_lamp = ImageTk.PhotoImage(Image.open('lamp.png'), Image.ANTIALIAS)
-img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.ANTIALIAS)
-
-## Top frame ##
-frame_top = tk.Frame(root, padx=2, pady=2)
-frame_top.columnconfigure(7, weight=1)
-frame_top.grid(row=1, columnspan=2, sticky='enw')
-
-device_info = tk.StringVar()
-lbl_device_info = tk.Label(frame_top, textvariable=device_info)
-lbl_device_info.grid(row=0, column=7, sticky='ne')
-
-jack_source = tk.StringVar()
-ttk.Label(frame_top, text="MIDI input").grid(row=0, column=0, sticky='w')
-cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
-cmb_jack_source.bind('<<ComboboxSelected>>', source_changed)
-cmb_jack_source.grid(row=1, column=0, sticky='n')
-cmb_jack_source.bind('<Enter>', populate_asla_source)
-
-txt_midi_in = tk.StringVar()
-ttk.Label(root, textvariable=txt_midi_in, anchor='w', background='#aacf55').grid(row=3, column=0, columnspan=2, sticky='ew')
-
-jack_dest = tk.StringVar()
-ttk.Label(frame_top, text="MIDI output").grid(row=0, column=1, sticky='w')
-cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
-cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
-cmb_jack_dest.grid(row=1, column=1, sticky='n')
-cmb_jack_dest.bind('<Enter>', populate_asla_dest)
-
-ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request).grid(row=0, column=2, rowspan=2)
-ttk.Button(frame_top, image=img_transfer_up, command=send_scene_data).grid(row=0, column=3, rowspan=2)
-ttk.Button(frame_top, image=img_save, command=send_scene_write_request).grid(row=0, column=4, rowspan=2)
-
-btn_test_leds = ttk.Button(frame_top, image=img_lamp, command=test_leds)
-btn_test_leds.grid(row=0, column=5, rowspan=2)
-ttk.Button(frame_top, image=img_info, command=show_info).grid(row=0, column=6, rowspan=2)
-
-## Control editor frame ##
-editor_midi_channel = tk.IntVar()
-editor_midi_global = tk.IntVar()
-editor_assign = tk.IntVar()
-editor_behaviour = tk.IntVar()
-editor_cmd = tk.IntVar()
-editor_min = tk.IntVar()
-editor_max = tk.IntVar()
-editor_group_offset = 0
-editor_ctrl = ''
-editor_mmc_cmd = tk.StringVar()
-editor_mmc_id = tk.IntVar()
-editor_title = tk.StringVar()
-
-frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
-frame_editor.grid(row=2, column=1, sticky='nsw')
-frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
-frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
-frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
-
-tk.Label(frame_editor, textvariable=editor_title, width=40, bg='#bf64ed').grid(row=0, column=0, columnspan=6, sticky='wne')
-
-frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_assign.grid(row=1, columnspan=6, sticky='ew')
-
-tk.Radiobutton(frame_assign, text="Disabled", variable=editor_assign, value=0).grid(row=0, column=0)
-rb_editor_cmd = tk.Radiobutton(frame_assign, text="CC", variable=editor_assign, value=1)
-rb_editor_cmd.grid(row=0, column=1)
-rb_editor_note = tk.Radiobutton(frame_assign, text="Note", variable=editor_assign, value=2)
-rb_editor_note.grid(row=0, column=2)
-
-frame_behaviour = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_behaviour.grid(row=2, columnspan=6, sticky='ew')
-
-rb_editor_momentary = tk.Radiobutton(frame_behaviour, text="Momentary", variable=editor_behaviour, value=0)
-rb_editor_momentary.grid(row=0, column=0, sticky='w')
-rb_editor_toggle = tk.Radiobutton(frame_behaviour, text="Toggle", variable=editor_behaviour, value=1)
-rb_editor_toggle.grid(row=0, column=1, sticky='w')
-
-lbl_cmd = tk.Label(frame_editor, text="CC")
-lbl_cmd.grid(row=3, column=0, sticky='w')
-lbl_min = tk.Label(frame_editor, text="Min")
-lbl_min.grid(row=3, column=1, sticky='w')
-lbl_max = tk.Label(frame_editor, text="Max")
-lbl_max.grid(row=3, column=2, sticky='w')
-
-cmb_mmc_cmd = ttk.Combobox(frame_editor, textvariable=editor_mmc_cmd, state='readonly', values=mmc_commands)
-spn_mmc_id = tk.Spinbox(frame_editor, from_=0, to=127, textvar=editor_mmc_id, width=3)
-spn_mmc_id.grid(row=4, column=2, sticky='w')
-spn_mmc_id.grid_remove()
-spn_cmd = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3)
-spn_cmd.grid(row=4, column=0, sticky='ew')
-spn_min = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3)
-spn_min.grid(row=4, column=1, sticky='ew')
-spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
-spn_max.grid(row=4, column=2, sticky='ew')
-
-tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0, sticky='w')
-spn_chan = tk.Spinbox(frame_editor, from_=1, to=16, textvariable=editor_midi_channel, width=3)
-spn_chan.grid(row=5, column=1, sticky='ew')
-chk_global = tk.Checkbutton(frame_editor, text="Global", variable=editor_midi_global)
-chk_global.grid(row=5, column=2, sticky='wsn')
-
-# Configure variable change event handlers
-editor_midi_channel.trace('w', on_editor_midi_chan)
-editor_midi_global.trace('w', on_editor_midi_chan)
-editor_assign.trace('w', on_editor_assign)
-editor_behaviour.trace('w', on_editor_behaviour)
-editor_cmd.trace('w', on_editor_cmd)
-editor_min.trace('w', on_editor_min)
-editor_max.trace('w', on_editor_max)
-editor_mmc_cmd.trace('w', on_editor_mmc_cmd)
-editor_mmc_id.trace('w', on_editor_mmc_id)
-
-
-# Handle mouse click on image
+# Handle mouse click on image - react to hot-spot clicks
 #   event: Mouse event
 def on_canvas_click(event):
     #print(event.x, event.y)
@@ -987,24 +874,15 @@ def on_canvas_click(event):
     if group < len(group_coords) - 1:            
         for ctrl in group_ctrl_coords:
             if x > group_offset_x + group_ctrl_coords[ctrl][0] and y > group_ctrl_coords[ctrl][1] and x < group_offset_x + group_ctrl_coords[ctrl][2] and y < group_ctrl_coords[ctrl][3]:
-                #print("Clicked on control {} {}".format(ctrl, group + 1))
-                show_editor(ctrl, group)
+                #print('Clicked on control {} {}'.format(ctrl, group + 1))
+                populate_editor(ctrl, group)
                 break
     else:
         for ctrl in transport_ctrl_coords:
             if x > transport_ctrl_coords[ctrl][0] and y > transport_ctrl_coords[ctrl][1] and x < transport_ctrl_coords[ctrl][2] and y < transport_ctrl_coords[ctrl][3]:
-                #print("Clicked on control {}".format(ctrl))
-                show_editor(ctrl)
+                #print('Clicked on control {}'.format(ctrl))
+                populate_editor(ctrl)
                 break
-
-## Device image ##
-canvas = tk.Canvas(root, width=800, height=250)
-img = Image.open('{}.png'.format(scene_data.device_type))
-canvas_img = ImageTk.PhotoImage(img, Image.ANTIALIAS)
-device_image = canvas.create_image(0, 0, anchor='nw', image=canvas_img)
-canvas.grid(row=2, column=0, sticky='nsew')
-canvas.bind('<Button-1>', on_canvas_click)
-canvas.bind('<Configure>', resize_image)
 
 
 # Set the device type
@@ -1022,15 +900,17 @@ def set_device_type(type):
     img = Image.open('{}.png'.format(scene_data.device_type))
     canvas_img = ImageTk.PhotoImage(img.resize((width, height), Image.ANTIALIAS))
     canvas.itemconfig(device_image, image=canvas_img)
-    show_editor('slider', 0)
+    populate_editor('slider', 0)
 
 
+# Handle MIDI data received from JACK or ALSA
+#   indata: List of raw MIDI data bytes
 def handle_midi_input(indata):
     
     data = struct.unpack('{}B'.format(len(indata)), indata)
-    str = "[{}] ".format(len(data))
+    str = '[{}] '.format(len(data))
     for i in data:
-        str += "{:02X} ".format(i)
+        str += '{:02X} '.format(i)
     #print(str)
     txt_midi_in.set(str)
 
@@ -1103,52 +983,44 @@ def handle_midi_input(indata):
         pass
 
 
-##########
-## JACK ##
-##########
-if jack_client:
-    @jack_client.set_process_callback
-    def process(frames):
-        global ev
+## JACK Functions ##
 
-        midi_out.clear_buffer()
-        if ev:
-            midi_out.write_midi_event(0, ev)
-            ev = None
+# Process jack frames
+def jack_process(frames):
+    global ev
+
+    jack_midi_out.clear_buffer()
+    if ev:
+        jack_midi_out.write_midi_event(0, ev)
+        ev = None
+    
+    # Process incoming messages
+    for offset, indata in jack_midi_in.incoming_midi_events():
+        handle_midi_input(indata)
         
-        # Process incoming messages
-        for offset, indata in midi_in.incoming_midi_events():
-            handle_midi_input(indata)
-            
 
-    # Refresh jack MIDI ports
-    @jack_client.set_graph_order_callback
-    def refresh_jack_ports():
-        global cmb_jack_source
-        global cmb_jack_dest
+# Refresh jack MIDI ports
+def refresh_jack_ports():
+    global cmb_jack_source
+    global cmb_jack_dest
 
-        ports = jack_client.get_ports(is_midi=True, is_output=True)
-        ports.remove(midi_out)
-        for port in ports:
-            source_ports[port.name] = ['jack', port]
+    ports = jack_client.get_ports(is_midi=True, is_output=True)
+    ports.remove(jack_midi_out)
+    for port in ports:
+        source_ports[port.name] = ['jack', port]
 
-        jack_dest_ports = []
-        ports = jack_client.get_ports(is_midi=True, is_input=True)
-        ports.remove(midi_in)
-        for port in ports:
-            destination_ports[port.name] = ['jack', port]
+    jack_dest_ports = []
+    ports = jack_client.get_ports(is_midi=True, is_input=True)
+    ports.remove(jack_midi_in)
+    for port in ports:
+        destination_ports[port.name] = ['jack', port]
 
-        update_ports()
+    update_ports()
 
 
-    # Activate jack client and get available MIDI ports
-    jack_client.activate()
+## ALSA Functions ##
 
-
-###############
-## ALSA MIDI ##
-###############
-
+# Thread worker listening for ALSA MIDI events
 def alsa_midi_in_thread():
     while True:
         event = alsa_client.event_input(prefer_bytes=True)
@@ -1158,13 +1030,187 @@ def alsa_midi_in_thread():
             print(repr(event))
 
 
+##################################### 
+## Core sequential functional code ##
+##################################### 
+
+scene_data = scene()
+
+## Initialise MIDI interfaces ##
+jack_client = None
+try:
+    jack_client = jack.Client('riban-nanoKonfig')
+    jack_midi_in = jack_client.midi_inports.register('in')
+    jack_midi_out = jack_client.midi_outports.register('out')
+except:
+    pass
+
+alsa_client = None
+try:
+    alsa_client = alsa_midi.SequencerClient('riban-nanoKonfig')
+    alsa_midi_in = alsa_client.create_port('in', caps=alsa_midi.WRITE_PORT)
+    alsa_midi_out = alsa_client.create_port('out', caps=alsa_midi.READ_PORT)
+except:
+    pass
+
+if alsa_client == jack_client == None:
+    logging.error('Failed to create ALSA or JACK client')
+    exit(-1)
+
+
+# Create UI
+source_ports = {} # Dictionary of available MIDI source ports: display_name:[type,port] where type is jack or alsa
+destination_ports = {} # Dictionary of available MIDI destination ports: display_name:[type,port] where type is jack or alsa
+
+# Root window
+root = tk.Tk()
+root.grid_columnconfigure(0, weight=1)
+root.grid_rowconfigure(2, weight=1)
+root.title('riban nanoKONTROL editor')
+
+# Icons
+img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'), Image.ANTIALIAS)
+img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Image.ANTIALIAS)
+img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.ANTIALIAS)
+img_lamp = ImageTk.PhotoImage(Image.open('lamp.png'), Image.ANTIALIAS)
+img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.ANTIALIAS)
+
+tk.Label(root, text='riban nanoKONTROL editor', bg='#80cde0').grid(columnspan=2, sticky='ew')
+
+# Top frame
+frame_top = tk.Frame(root, padx=2, pady=2)
+frame_top.columnconfigure(7, weight=1)
+frame_top.grid(row=1, columnspan=2, sticky='enw')
+
+device_info = tk.StringVar()
+lbl_device_info = tk.Label(frame_top, textvariable=device_info)
+lbl_device_info.grid(row=0, column=7, sticky='ne')
+
+jack_source = tk.StringVar()
+ttk.Label(frame_top, text='MIDI input').grid(row=0, column=0, sticky='w')
+cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
+cmb_jack_source.bind('<<ComboboxSelected>>', source_changed)
+cmb_jack_source.grid(row=1, column=0, sticky='n')
+cmb_jack_source.bind('<Enter>', populate_asla_source)
+
+txt_midi_in = tk.StringVar()
+ttk.Label(root, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=1).grid(row=3, column=0, columnspan=2, sticky='ew') # width=<any> stops received MIDI messages stretching width of display 
+
+jack_dest = tk.StringVar()
+ttk.Label(frame_top, text='MIDI output').grid(row=0, column=1, sticky='w')
+cmb_jack_dest = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
+cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
+cmb_jack_dest.grid(row=1, column=1, sticky='n')
+cmb_jack_dest.bind('<Enter>', populate_asla_dest)
+
+ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request).grid(row=0, column=2, rowspan=2)
+ttk.Button(frame_top, image=img_transfer_up, command=send_scene_data).grid(row=0, column=3, rowspan=2)
+ttk.Button(frame_top, image=img_save, command=send_scene_write_request).grid(row=0, column=4, rowspan=2)
+
+btn_test_leds = ttk.Button(frame_top, image=img_lamp, command=test_leds)
+btn_test_leds.grid(row=0, column=5, rowspan=2)
+ttk.Button(frame_top, image=img_info, command=show_info).grid(row=0, column=6, rowspan=2)
+
+# Control editor frame
+editor_midi_channel = tk.IntVar()
+editor_midi_global = tk.IntVar()
+editor_assign = tk.IntVar()
+editor_behaviour = tk.IntVar()
+editor_cmd = tk.IntVar()
+editor_min = tk.IntVar()
+editor_max = tk.IntVar()
+editor_group_offset = 0
+editor_ctrl = ''
+editor_mmc_cmd = tk.StringVar()
+editor_mmc_id = tk.IntVar()
+editor_title = tk.StringVar()
+
+frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
+frame_editor.grid(row=2, column=1, sticky='nsw')
+frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
+frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
+frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
+
+tk.Label(frame_editor, textvariable=editor_title, width=40, bg='#bf64ed').grid(row=0, column=0, columnspan=6, sticky='wne')
+
+frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_assign.grid(row=1, columnspan=6, sticky='ew')
+
+tk.Radiobutton(frame_assign, text='Disabled', variable=editor_assign, value=0).grid(row=0, column=0)
+rb_editor_cmd = tk.Radiobutton(frame_assign, text='CC', variable=editor_assign, value=1)
+rb_editor_cmd.grid(row=0, column=1)
+rb_editor_note = tk.Radiobutton(frame_assign, text='Note', variable=editor_assign, value=2)
+rb_editor_note.grid(row=0, column=2)
+
+frame_behaviour = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_behaviour.grid(row=2, columnspan=6, sticky='ew')
+
+rb_editor_momentary = tk.Radiobutton(frame_behaviour, text='Momentary', variable=editor_behaviour, value=0)
+rb_editor_momentary.grid(row=0, column=0, sticky='w')
+rb_editor_toggle = tk.Radiobutton(frame_behaviour, text='Toggle', variable=editor_behaviour, value=1)
+rb_editor_toggle.grid(row=0, column=1, sticky='w')
+
+lbl_cmd = tk.Label(frame_editor, text='CC')
+lbl_cmd.grid(row=3, column=0, sticky='w')
+lbl_min = tk.Label(frame_editor, text='Min')
+lbl_min.grid(row=3, column=1, sticky='w')
+lbl_max = tk.Label(frame_editor, text='Max')
+lbl_max.grid(row=3, column=2, sticky='w')
+
+cmb_mmc_cmd = ttk.Combobox(frame_editor, textvariable=editor_mmc_cmd, state='readonly', values=mmc_commands)
+spn_mmc_id = tk.Spinbox(frame_editor, from_=0, to=127, textvar=editor_mmc_id, width=3)
+spn_mmc_id.grid(row=4, column=2, sticky='w')
+spn_mmc_id.grid_remove()
+spn_cmd = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3)
+spn_cmd.grid(row=4, column=0, sticky='ew')
+spn_min = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3)
+spn_min.grid(row=4, column=1, sticky='ew')
+spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
+spn_max.grid(row=4, column=2, sticky='ew')
+
+tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0, sticky='w')
+spn_chan = tk.Spinbox(frame_editor, from_=1, to=16, textvariable=editor_midi_channel, width=3)
+spn_chan.grid(row=5, column=1, sticky='ew')
+chk_global = tk.Checkbutton(frame_editor, text='Global', variable=editor_midi_global)
+chk_global.grid(row=5, column=2, sticky='wsn')
+
+# Configure variable change event handlers
+editor_midi_channel.trace('w', on_editor_midi_chan)
+editor_midi_global.trace('w', on_editor_midi_chan)
+editor_assign.trace('w', on_editor_assign)
+editor_behaviour.trace('w', on_editor_behaviour)
+editor_cmd.trace('w', on_editor_cmd)
+editor_min.trace('w', on_editor_min)
+editor_max.trace('w', on_editor_max)
+editor_mmc_cmd.trace('w', on_editor_mmc_cmd)
+editor_mmc_id.trace('w', on_editor_mmc_id)
+
+# Start jack client
+if jack_client:
+    jack_client.set_process_callback(jack_process)
+    jack_client.set_graph_order_callback(refresh_jack_ports)
+
+    # Activate jack client and get available MIDI ports
+    jack_client.activate()
+
+
+# Start ALSA MIDI listening thread
 if alsa_client:
     alsa_thread = Thread(target=alsa_midi_in_thread, args=())
-    alsa_thread.name = "alsa_in"
+    alsa_thread.name = 'alsa_in'
     alsa_thread.daemon = True
     alsa_thread.start()
 
+
+# Device image
+canvas = tk.Canvas(root, width=800, height=250)
+img = Image.open('{}.png'.format(scene_data.device_type))
+canvas_img = ImageTk.PhotoImage(img, Image.ANTIALIAS)
+device_image = canvas.create_image(0, 0, anchor='nw', image=canvas_img)
+canvas.grid(row=2, column=0, sticky='nsew')
+canvas.bind('<Button-1>', on_canvas_click)
+canvas.bind('<Configure>', resize_image)
+
 set_device_type('nanoKONTROL2')
-show_editor('slider', 0)
 
 root.mainloop()
