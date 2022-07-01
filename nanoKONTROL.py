@@ -1094,10 +1094,10 @@ cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
 cmb_jack_dest.grid(row=1, column=1, sticky='n')
 cmb_jack_dest.bind('<Enter>', populate_asla_dest)
 
-btn_upload = ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request)
-btn_upload.grid(row=0, column=2, rowspan=2)
-btn_download = ttk.Button(frame_top, image=img_transfer_up, command=send_scene_data)
-btn_download.grid(row=0, column=3, rowspan=2)
+btn_download = ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request)
+btn_download.grid(row=0, column=2, rowspan=2)
+btn_upload = ttk.Button(frame_top, image=img_transfer_up, command=send_scene_data)
+btn_upload.grid(row=0, column=3, rowspan=2)
 btn_save = ttk.Button(frame_top, image=img_save, command=send_scene_write_request)
 btn_save.grid(row=0, column=4, rowspan=2)
 btn_restore = ttk.Button(frame_top, image=img_restore, command=restore_last_download)
@@ -1212,8 +1212,8 @@ canvas.bind('<Configure>', resize_image)
 set_device_type('nanoKONTROL2')
 
 tooltip_obj = ToolTips.ToolTips(
-    [btn_upload, btn_download, btn_save, btn_restore, btn_info],
-    ['Upload to nanoKONTROL', 'Download from nanoKONTROL', 'Save current scene on nanoKONTROL', 'Restore to last download', 'About']
+    [btn_download, btn_upload, btn_save, btn_restore, btn_info],
+    ['Download from nanoKONTROL', 'Upload to nanoKONTROL', 'Save current scene on nanoKONTROL', 'Restore to last download', 'About']
 )
 
 root.mainloop()
