@@ -791,9 +791,18 @@ def show_info():
         msg += '\n{}'.format(credit)
     messagebox.showinfo('About...', msg)
 
+
+def resize_image(event):
+    global canvas_img
+    canvas_img = ImageTk.PhotoImage(img.resize((event.width, event.height), Image.ANTIALIAS))
+    canvas.itemconfig(device_image, image=canvas_img)
+
+
 ## Root window ##
 root = tk.Tk()
-root.rowconfigure(2, weight=1)
+root.grid_columnconfigure(0, weight=1)
+#root.grid_columnconfigure(2, weight=2)
+root.grid_rowconfigure(2, weight=1)
 root.title("riban nanoKONTROL editor")
 
 tk.Label(root, text="riban nanoKONTROL editor", bg='#80cde0').grid(columnspan=2, sticky='ew')
@@ -854,12 +863,12 @@ editor_mmc_id = tk.IntVar()
 editor_title = tk.StringVar()
 
 frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
-frame_editor.grid(row=2, column=1, sticky='nw')
+frame_editor.grid(row=2, column=1, sticky='nsw')
 frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
 frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
 frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
 
-tk.Label(frame_editor, textvariable=editor_title, bg='#bf64ed').grid(row=0, column=0, columnspan=6, sticky='wne')
+tk.Label(frame_editor, textvariable=editor_title, width=40, bg='#bf64ed').grid(row=0, column=0, columnspan=6, sticky='wne')
 
 frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
 frame_assign.grid(row=1, columnspan=6, sticky='ew')
@@ -896,7 +905,7 @@ spn_min.grid(row=4, column=1, sticky='ew')
 spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
 spn_max.grid(row=4, column=2, sticky='ew')
 
-tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0)
+tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0, sticky='w')
 spn_chan = tk.Spinbox(frame_editor, from_=1, to=16, textvariable=editor_midi_channel, width=3)
 spn_chan.grid(row=5, column=1, sticky='ew')
 chk_global = tk.Checkbutton(frame_editor, text="Global", variable=editor_midi_global)
@@ -963,8 +972,8 @@ def on_canvas_click(event):
         }
     else:
         return
-    x = event.x / 800
-    y = event.y / 250
+    x = event.x / canvas_img.width()
+    y = event.y / canvas_img.height()
     group = None
     for i,coord in enumerate(group_coords):
         if x > coord[0] and x < coord[1]:
@@ -989,25 +998,30 @@ def on_canvas_click(event):
                 break
 
 ## Device image ##
-img1 = ImageTk.PhotoImage(Image.open('nanoKONTROL1.png').resize((800,250), Image.ANTIALIAS))
-img2 = ImageTk.PhotoImage(Image.open('nanoKONTROL2.png').resize((800,250), Image.ANTIALIAS))
-canvas = tk.Canvas(root)
-device_image = canvas.create_image(0, 0, anchor='nw', image=img2)
-root.grid_columnconfigure(0, minsize=800)
+canvas = tk.Canvas(root, width=800, height=250)
+img = Image.open('{}.png'.format(scene_data.device_type))
+canvas_img = ImageTk.PhotoImage(img, Image.ANTIALIAS)
+device_image = canvas.create_image(0, 0, anchor='nw', image=canvas_img)
 canvas.grid(row=2, column=0, sticky='nsew')
 canvas.bind('<Button-1>', on_canvas_click)
+canvas.bind('<Configure>', resize_image)
 
 
 # Set the device type
 #   type: Device type ['nanoKONTROL1', 'nanoKONTROL2']
 def set_device_type(type):
+    global img
+    global canvas_img
     scene_data.set_device_type(type)
     if type == 'nanoKONTROL1':
         btn_test_leds.grid_remove()
-        canvas.itemconfigure(device_image, image=img1, state=tk.NORMAL)
     elif type == 'nanoKONTROL2':
         btn_test_leds.grid()
-        canvas.itemconfigure(device_image, image=img2, state=tk.NORMAL)
+    width = canvas_img.width()
+    height = canvas_img.height()
+    img = Image.open('{}.png'.format(scene_data.device_type))
+    canvas_img = ImageTk.PhotoImage(img.resize((width, height), Image.ANTIALIAS))
+    canvas.itemconfig(device_image, image=canvas_img)
     show_editor('slider', 0)
 
 
