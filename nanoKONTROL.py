@@ -593,23 +593,6 @@ def destination_changed(event):
     send_device_search()
 
 
-# Blink each LED on device
-#TODO: Do we need to test LEDs? This is blocking and makes app unresponsive for 3s
-def test_leds():
-    for led in range(0x29, 0x2F):
-        send_midi([0xBF, led, 0x7F])
-        sleep(0.05)
-        send_midi([0xBF, led, 0x00])
-        sleep(0.05)
-    for group in range(8):
-        for fn in range(3):
-            led = 0x20 +  0x10 * fn + group
-            send_midi([0xBF, led, 0x7F])
-            sleep(0.05)
-            send_midi([0xBF, led, 0x00])
-            sleep(0.05)
-
-
 # Populate the control editor and connect to a control to edit
 #   ctrl: Name of the control to edit
 #   group: Control group or None (default) for transport controls
@@ -904,10 +887,6 @@ def set_device_type(type):
     global img
     global canvas_img
     scene_data.set_device_type(type)
-    if type == 'nanoKONTROL1':
-        btn_test_leds.grid_remove()
-    elif type == 'nanoKONTROL2':
-        btn_test_leds.grid()
     width = canvas_img.width()
     height = canvas_img.height()
     img = Image.open('{}.png'.format(scene_data.device_type))
@@ -1088,7 +1067,6 @@ root.title('riban nanoKONTROL editor')
 img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'), Image.ANTIALIAS)
 img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Image.ANTIALIAS)
 img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.ANTIALIAS)
-img_lamp = ImageTk.PhotoImage(Image.open('lamp.png'), Image.ANTIALIAS)
 img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.ANTIALIAS)
 img_restore = ImageTk.PhotoImage(Image.open('restore.png'), Image.ANTIALIAS)
 
@@ -1096,7 +1074,7 @@ tk.Label(root, text='riban nanoKONTROL editor', bg='#80cde0').grid(columnspan=2,
 
 # Top frame
 frame_top = tk.Frame(root, padx=2, pady=2)
-frame_top.columnconfigure(8, weight=1)
+frame_top.columnconfigure(7, weight=1)
 frame_top.grid(row=1, columnspan=2, sticky='enw')
 
 jack_source = tk.StringVar()
@@ -1124,13 +1102,11 @@ btn_save = ttk.Button(frame_top, image=img_save, command=send_scene_write_reques
 btn_save.grid(row=0, column=4, rowspan=2)
 btn_restore = ttk.Button(frame_top, image=img_restore, command=restore_last_download)
 btn_restore.grid(row=0, column=5, rowspan=2)
-btn_test_leds = ttk.Button(frame_top, image=img_lamp, command=test_leds)
-btn_test_leds.grid(row=0, column=6, rowspan=2)
 btn_info = ttk.Button(frame_top, image=img_info, command=show_info)
-btn_info.grid(row=0, column=7, rowspan=2)
+btn_info.grid(row=0, column=6, rowspan=2)
 device_info = tk.StringVar()
 lbl_device_info = tk.Label(frame_top, textvariable=device_info)
-lbl_device_info.grid(row=0, column=8, sticky='ne')
+lbl_device_info.grid(row=0, column=7, sticky='ne')
 
 # Control editor frame
 editor_midi_channel = tk.IntVar()
@@ -1236,8 +1212,8 @@ canvas.bind('<Configure>', resize_image)
 set_device_type('nanoKONTROL2')
 
 tooltip_obj = ToolTips.ToolTips(
-    [btn_upload, btn_download, btn_save, btn_restore, btn_test_leds, btn_info],
-    ['Upload to nanoKONTROL', 'Download from nanoKONTROL', 'Save current scene on nanoKONTROL', 'Restore to last download', 'Test LEDs on nanoKONTROL', 'About']
+    [btn_upload, btn_download, btn_save, btn_restore, btn_info],
+    ['Upload to nanoKONTROL', 'Download from nanoKONTROL', 'Save current scene on nanoKONTROL', 'Restore to last download', 'About']
 )
 
 root.mainloop()
