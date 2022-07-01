@@ -21,6 +21,7 @@ import logging
 from time import sleep
 from PIL import ImageTk, Image
 from threading import Thread
+import ToolTips
 
 ev = None # Used to pass MIDI messages for JACK to transmit
 echo_id = 0x00 # Used to identify own sysex messages
@@ -28,10 +29,14 @@ echo_id = 0x00 # Used to identify own sysex messages
 credits = [
     'Code:',
     'brian@riban.co.uk',
+    'Tooltips',
+    'http://www.pedrojhenriques.com',
+    '',
     'Icons:',
     'https://freeicons.io',
     'profile/5790', # Transfer, Lamp, Save
-    'profile/3335' # Info
+    'profile/3335', # Info
+    'profile/730' # Restore
 ]
 
 mmc_commands = [
@@ -620,8 +625,10 @@ def populate_editor(ctrl, group=None):
     global editor_ctrl
     global editor_mmc_cmd
     global editor_mmc_id
+    global editor_group
 
     editor_ctrl = ctrl
+    editor_group = group
     is_button = editor_ctrl not in ('knob', 'slider')
 
     if group is None:
@@ -795,6 +802,12 @@ def on_editor_mmc_id(*args):
         pass
 
 
+# Restore the data from last downloaded
+def restore_last_download():
+    scene_data.data = scene_backup.data.copy()
+    populate_editor(editor_ctrl, editor_group)
+
+
 # Show application info (about...)
 def show_info():
     msg = 'nanoKONTROL-Config\nriban 2022\n'
@@ -950,9 +963,11 @@ def handle_midi_input(indata):
         if data[7:13] == [0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40]:
             # nanoKONTROL2 data dump
             scene_data.set_data(data[13:-1])
+            scene_backup.data = scene_data.data.copy()
         elif data[7:13] == [0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40]:
             # nanoKONTROL1 data dump
             scene_data.set_data(data[13:-1])
+            scene_backup.data = scene_data.data.copy()
         elif data[7:10] == [0x5F, 0x23, 0x00]:
             # Load data ACK
             #TODO: Indicate successful reception of data
@@ -1035,6 +1050,7 @@ def alsa_midi_in_thread():
 ##################################### 
 
 scene_data = scene()
+scene_backup = scene()
 
 ## Initialise MIDI interfaces ##
 jack_client = None
@@ -1074,17 +1090,14 @@ img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Ima
 img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.ANTIALIAS)
 img_lamp = ImageTk.PhotoImage(Image.open('lamp.png'), Image.ANTIALIAS)
 img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.ANTIALIAS)
+img_restore = ImageTk.PhotoImage(Image.open('restore.png'), Image.ANTIALIAS)
 
 tk.Label(root, text='riban nanoKONTROL editor', bg='#80cde0').grid(columnspan=2, sticky='ew')
 
 # Top frame
 frame_top = tk.Frame(root, padx=2, pady=2)
-frame_top.columnconfigure(7, weight=1)
+frame_top.columnconfigure(8, weight=1)
 frame_top.grid(row=1, columnspan=2, sticky='enw')
-
-device_info = tk.StringVar()
-lbl_device_info = tk.Label(frame_top, textvariable=device_info)
-lbl_device_info.grid(row=0, column=7, sticky='ne')
 
 jack_source = tk.StringVar()
 ttk.Label(frame_top, text='MIDI input').grid(row=0, column=0, sticky='w')
@@ -1103,13 +1116,21 @@ cmb_jack_dest.bind('<<ComboboxSelected>>', destination_changed)
 cmb_jack_dest.grid(row=1, column=1, sticky='n')
 cmb_jack_dest.bind('<Enter>', populate_asla_dest)
 
-ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request).grid(row=0, column=2, rowspan=2)
-ttk.Button(frame_top, image=img_transfer_up, command=send_scene_data).grid(row=0, column=3, rowspan=2)
-ttk.Button(frame_top, image=img_save, command=send_scene_write_request).grid(row=0, column=4, rowspan=2)
-
+btn_upload = ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request)
+btn_upload.grid(row=0, column=2, rowspan=2)
+btn_download = ttk.Button(frame_top, image=img_transfer_up, command=send_scene_data)
+btn_download.grid(row=0, column=3, rowspan=2)
+btn_save = ttk.Button(frame_top, image=img_save, command=send_scene_write_request)
+btn_save.grid(row=0, column=4, rowspan=2)
+btn_restore = ttk.Button(frame_top, image=img_restore, command=restore_last_download)
+btn_restore.grid(row=0, column=5, rowspan=2)
 btn_test_leds = ttk.Button(frame_top, image=img_lamp, command=test_leds)
-btn_test_leds.grid(row=0, column=5, rowspan=2)
-ttk.Button(frame_top, image=img_info, command=show_info).grid(row=0, column=6, rowspan=2)
+btn_test_leds.grid(row=0, column=6, rowspan=2)
+btn_info = ttk.Button(frame_top, image=img_info, command=show_info)
+btn_info.grid(row=0, column=7, rowspan=2)
+device_info = tk.StringVar()
+lbl_device_info = tk.Label(frame_top, textvariable=device_info)
+lbl_device_info.grid(row=0, column=8, sticky='ne')
 
 # Control editor frame
 editor_midi_channel = tk.IntVar()
@@ -1121,6 +1142,7 @@ editor_min = tk.IntVar()
 editor_max = tk.IntVar()
 editor_group_offset = 0
 editor_ctrl = ''
+editor_group = None
 editor_mmc_cmd = tk.StringVar()
 editor_mmc_id = tk.IntVar()
 editor_title = tk.StringVar()
@@ -1212,5 +1234,10 @@ canvas.bind('<Button-1>', on_canvas_click)
 canvas.bind('<Configure>', resize_image)
 
 set_device_type('nanoKONTROL2')
+
+tooltip_obj = ToolTips.ToolTips(
+    [btn_upload, btn_download, btn_save, btn_restore, btn_test_leds, btn_info],
+    ['Upload to nanoKONTROL', 'Download from nanoKONTROL', 'Save current scene on nanoKONTROL', 'Restore to last download', 'Test LEDs on nanoKONTROL', 'About']
+)
 
 root.mainloop()
