@@ -793,7 +793,9 @@ def show_info():
 
 ## Root window ##
 root = tk.Tk()
+root.rowconfigure(2, weight=1)
 root.title("riban nanoKONTROL editor")
+
 tk.Label(root, text="riban nanoKONTROL editor", bg='#80cde0').grid(columnspan=2, sticky='ew')
 
 # icons #
@@ -803,12 +805,15 @@ img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.ANTIALIAS)
 img_lamp = ImageTk.PhotoImage(Image.open('lamp.png'), Image.ANTIALIAS)
 img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.ANTIALIAS)
 
+## Top frame ##
 frame_top = tk.Frame(root, padx=2, pady=2)
-root.rowconfigure(2, weight=1)
-root.columnconfigure(1, weight=1)
+frame_top.columnconfigure(7, weight=1)
 frame_top.grid(row=1, columnspan=2, sticky='enw')
 
-## Top frame ##
+device_info = tk.StringVar()
+lbl_device_info = tk.Label(frame_top, textvariable=device_info)
+lbl_device_info.grid(row=0, column=7, sticky='ne')
+
 jack_source = tk.StringVar()
 ttk.Label(frame_top, text="MIDI input").grid(row=0, column=0, sticky='w')
 cmb_jack_source = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
@@ -1031,6 +1036,7 @@ def handle_midi_input(indata):
             set_device_type('nanoKONTROL1')
         elif family_id == 147:
             set_device_type('nanoKONTROL2')
+        device_info.set('Device version: {}.{}'.format(major,minor))
     elif len(data) == 3:
         cmd = data[0] & 0xF0
         if cmd == 0x80 or cmd == 0x90 and data[2] == 0:
