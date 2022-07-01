@@ -47,9 +47,14 @@ sudo pip3 install alsa-midi
 
 # Credits
 
-- Core code written by Brian Walton (riban.co.uk.)
-- Tooltips are provided by PedroHenriques (http://www.pedrojhenriques.com / https://github.com/PedroHenriques/Tkinter_ToolTips)
-- Icons from https://freeicons.io:
-  - Transfer, Save: https://freeicons.io/profile/5790
-  - Info: https://freeicons.io/profile/3335
-  - Restore: https://freeicons.io/profile/730
+Core code written by Brian Walton (http://riban.co.uk / https://github.com/riban-bw/nanoKONTROL-Config)
+
+Tooltips are provided by PedroHenriques (http://www.pedrojhenriques.com / https://github.com/PedroHenriques/Tkinter_ToolTips)
+
+Icons from https://freeicons.io
+
+![image](https://user-images.githubusercontent.com/3158323/176854990-1b05b67f-5ee8-4033-aa6b-4a9b08500a56.png) ![image](https://user-images.githubusercontent.com/3158323/176855361-4ea75e8b-cff0-47c8-bb37-3cf351f40b1d.png) [ColourCreatype](https://freeicons.io/profile/5790)
+
+![image](https://user-images.githubusercontent.com/3158323/176917301-d15296fb-79ab-421e-9d40-bc22f057394b.png) [MD Badsha Meah](https://freeicons.io/profile/3335)
+
+![image](https://user-images.githubusercontent.com/3158323/176915479-baf8d65f-2365-489f-a51e-11723717cd29.png) [Anu Rocks](https://freeicons.io/profile/730)
