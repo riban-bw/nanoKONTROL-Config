@@ -2,10 +2,10 @@
 Configuration tool for Korg nanoKONTROL written in Python.
 
 Supports nanoKONTROL1
-![image](https://user-images.githubusercontent.com/3158323/176854768-7ef9ef1a-82e5-4450-90aa-d3ce95d32d11.png)
+![image](https://user-images.githubusercontent.com/3158323/176855965-48bac669-10b0-424b-bf8e-8a7d0fce9f3b.png)
 
 Supports nanoKONTROL2
-![image](https://user-images.githubusercontent.com/3158323/176854687-ae17ec16-73b2-41ae-9756-884075ab7f83.png)
+![image](https://user-images.githubusercontent.com/3158323/176855869-e5ef50b7-ebaf-46bb-91e6-16a9c218a28b.png)
 
 This tool provides a graphical user interface allowing configuration of Korg nanoKONTROL1 and nanoKONTROL2 devices. Functionality is broadly similar to Korg's own configuration tool (which I have never seen!). This tool is cross platform and open source.
 
