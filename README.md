@@ -45,13 +45,15 @@ sudo apt install python3-pip
 sudo pip3 install alsa-midi
 ```
 
-# Credits
+# Credits and Licensing
 
-Core code written by Brian Walton (http://riban.co.uk / https://github.com/riban-bw/nanoKONTROL-Config)
+Released under the [GPL 3.0 software licensing](https://www.gnu.org/licenses/gpl-3.0.en.html). You may use and distribute this software free of charge. It may not be used within a closed source project. There is no liability protection of its use.
 
-Tooltips are provided by PedroHenriques (http://www.pedrojhenriques.com / https://github.com/PedroHenriques/Tkinter_ToolTips)
+[Core code](https://github.com/riban-bw/nanoKONTROL-Config) written by [Brian Walton](http://riban.co.uk)
 
-Icons from https://freeicons.io
+[Tooltips](https://github.com/PedroHenriques/Tkinter_ToolTips) provided by [Pedro Henriques](http://www.pedrojhenriques.com)
+
+Icons from [freeicons](https://freeicons.io)
 
 ![image](https://user-images.githubusercontent.com/3158323/176854990-1b05b67f-5ee8-4033-aa6b-4a9b08500a56.png) ![image](https://user-images.githubusercontent.com/3158323/176855361-4ea75e8b-cff0-47c8-bb37-3cf351f40b1d.png) [ColourCreatype](https://freeicons.io/profile/5790)
 
