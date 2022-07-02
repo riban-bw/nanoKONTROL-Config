@@ -1,9 +1,10 @@
 # Configuration editor for Korg nanoKONTROL
 #
-# Copyright riban.co.uk
-# Licencse GPL V3.0
+# Copyright: riban ltd (riban.co.uk)
+# Licencse: GPL V3.0
+# Source: https://github.com/riban-bw/nanoKONTROL-Config
 #
-# Dependencies: tkinter, jack, PIL, ImageTk
+# Dependencies: tkinter, jack / alsa, PIL, ImageTk
 
 import struct
 from tkinter import messagebox
@@ -18,7 +19,6 @@ except:
 import tkinter as tk
 from tkinter import ttk
 import logging
-from time import sleep
 from PIL import ImageTk, Image
 from threading import Thread
 import ToolTips
@@ -34,7 +34,7 @@ credits = [
     '',
     'Icons:',
     'https://freeicons.io',
-    'profile/5790', # Transfer, Lamp, Save
+    'profile/5790', # Transfer, Save
     'profile/3335', # Info
     'profile/730' # Restore
 ]
@@ -157,12 +157,12 @@ class scene:
         self.global_midi_chan = 0 # Global MIDI channel (0 based)
         self.device_types = {
             'nanoKONTROL1': {
-                'sysex_len': 307,
-                'sysex_id': [0x00, 0x01, 0x04, 0x00]
+                'sysex_len': 293,
+                'sysex_id': (0x00, 0x01, 0x04, 0x00)
             },
             'nanoKONTROL2': {
-                'sysex_len': 402,
-                'sysex_id': [0x00, 0x01, 0x13, 0x00]
+                'sysex_len': 388,
+                'sysex_id': (0x00, 0x01, 0x13, 0x00)
             }
         }
         self.device_type = None
@@ -253,15 +253,15 @@ class scene:
     #   data: 8-bit Korg data
     #   returns: List containing sysex data
     def get_midi_data(self):
-        sysex = []
+        sysex = ()
         for offset in range(0, len(self.data), 7):
             block = self.data[offset:offset+7]
             b0 = 0
             for b in range(len(block)):
                 b0 |= ((block[b] & 0x80) >> (7 - b))
-            sysex.append(b0)
-            for word in range(len(block)):
-                sysex.append(self.data[offset + word] & 0x7F)
+            sysex += (b0,)
+            for word in block:
+                sysex += (word & 0x7F,)
         return sysex
 
 
@@ -277,8 +277,8 @@ class scene:
         for offset in range(0, len(data), 8):
             block = data[offset:offset+8]
             for word in range(1, len(block)):
-                self.data[i] = (data[offset + word] | (data[offset] & 1 << (word - 1)) << 8 - word)
-            i += 1
+                self.data[i + word - 1] = (block[word] | (block[0] & 1 << (word - 1)))
+            i += 7
 
 
     # Get scene name
@@ -356,7 +356,7 @@ class scene:
     #   mode: LED mode [0:Internal, 1:External]
     #   nanoKONTROL2 only
     def set_led_mode(self, mode):
-        if self.device_type == 'nanoKONTROL2' and mode < 1:
+        if self.device_type == 'nanoKONTROL2' and mode <= 1:
             self.data[2] = mode
         return 0
 
@@ -416,7 +416,7 @@ def send_midi(msg):
         alsa_client.drain_output()
     except:
         pass # ALSA failed but let's try JACk as well
-    ev = msg.copy() #TODO: Implement queue for JACK MIDI send
+    ev = msg #TODO: Implement queue for JACK MIDI send
 
 
 ## Device specific MIDI messages - send from application to device ##
@@ -435,14 +435,14 @@ def send_device_search():
 #   data: List containing the message payload
 def send_command_list(data):
     try:
-        send_midi([0xF0, 0x42, 0x40 | scene_data.global_midi_chan] + scene_data.get_sysex_id() + data + [0xF7])
+        send_midi((0xF0, 0x42, 0x40 | scene_data.global_midi_chan) + scene_data.get_sysex_id() + data + (0xF7,))
     except Exception as e:
         logging.warning(e)
 
 
 # Request current scene data dump from device
 def send_dump_request():
-    send_command_list([0x1F, 0x10, 0x00])
+    send_command_list((0x1F, 0x10, 0x00))
 
 
 # Request current temporary scene data be saved on device
@@ -451,44 +451,44 @@ def send_dump_request():
 def send_scene_write_request(scene=0):
     if scene < 0 or scene > 3:
         return
-    send_command_list([0x1F, 0x11, scene])
+    send_command_list((0x1F, 0x11, scene))
 
 
 # Request native mode in (nanoKONTROL2)
 #TODO: Implement native mode on nanoKONTROL2
 def send_native_mode():
-    send_command_list([0x00, 0x00, 0x00])
+    send_command_list((0x00, 0x00, 0x00))
 
 
 # Request native mode out (nanoKONTROL2)
 def send_native_mode():
-    send_command_list([0x00, 0x00, 0x01])
+    send_command_list((0x00, 0x00, 0x01))
 
 
 # Request mode (nanoKONTROL2)
 def send_query_mode():
-    send_command_list([0x1F, 0x12, 0x00])
+    send_command_list((0x1F, 0x12, 0x00))
 
 
 # Request a scene change (nanoKONTROL1)
 #   scene: Requested scene [0..3]
 def send_scene_change_request(scene):
     if(scene >= 0 and scene <= 3):
-        send_command_list([0x1F, 0x14, scene, 0xF7])
+        send_command_list((0x1F, 0x14, scene, 0xF7))
 
 
 # Upload a scene to device 'current scene'
 # Must write scene to save to persistent memory
 def send_scene_data():
     if scene_data.device_type == 'nanoKONTROL1':
-        send_command_list([0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40] + scene_data.get_midi_data())
+        send_command_list((0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40) + scene_data.get_midi_data())
     elif scene_data.device_type == 'nanoKONTROL2':
-        send_command_list([0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40] + scene_data.get_midi_data())
+        send_command_list((0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40) + scene_data.get_midi_data())
 
 
 # Send port detect request
 def send_port_detect():
-    send_command_list([0x1E, 0x00, echo_id])
+    send_command_list((0x1E, 0x00, echo_id))
 
 
 ## UI  Functions ##
@@ -594,11 +594,11 @@ def destination_changed(event):
 
 
 # Populate the control editor and connect to a control to edit
-#   ctrl: Name of the control to edit
+#   ctrl: Name of the control to edit (default: Repopulate with current selection)
 #   group: Control group or None (default) for transport controls
-def populate_editor(ctrl, group=None):
+def populate_editor(ctrl=None, group=None):
     global editor_midi_channel
-    global editor_midi_global
+    global editor_midi_channel_is_global
     global editor_group_offset
     global editor_assign
     global editor_behaviour
@@ -610,16 +610,21 @@ def populate_editor(ctrl, group=None):
     global editor_mmc_id
     global editor_group
 
-    editor_ctrl = ctrl
-    editor_group = group
+    if ctrl is not None:
+        editor_ctrl = ctrl
+        editor_group = group
+    if editor_ctrl is None:
+        # Must be first time so select first knob
+        editor_ctrl = 'knob'
+        editor_group = 0
     is_button = editor_ctrl not in ('knob', 'slider')
 
-    if group is None:
+    if editor_group is None:
         editor_group_offset = control_map[scene_data.device_type]['transport']
-        editor_title.set('{}'.format(ctrl.replace('_',' ').upper()))
-    elif group < len(control_map[scene_data.device_type]['groups']):
-        editor_group_offset = control_map[scene_data.device_type]['groups'][group]
-        editor_title.set('{} {}'.format(ctrl.replace('_',' ').upper(), group + 1))
+        editor_title.set('{}'.format(editor_ctrl.replace('_',' ').upper()))
+    elif editor_group < len(control_map[scene_data.device_type]['groups']):
+        editor_group_offset = control_map[scene_data.device_type]['groups'][editor_group]
+        editor_title.set('{} {}'.format(editor_ctrl.replace('_',' ').upper(), editor_group + 1))
 
     if is_button:
         rb_editor_note['state'] = tk.NORMAL
@@ -639,9 +644,9 @@ def populate_editor(ctrl, group=None):
     midi_chan = scene_data.get_group_channel(editor_group_offset)
     if midi_chan < 16:
         editor_midi_channel.set(midi_chan + 1)
-        editor_midi_global.set(0)
+        editor_midi_channel_is_global.set(0)
     else:
-        editor_midi_global.set(1)
+        editor_midi_channel_is_global.set(1)
 
     if scene_data.device_type == 'nanoKONTROL1' and group is None:
         rb_editor_note['text'] = 'MMC'
@@ -679,11 +684,17 @@ def populate_editor(ctrl, group=None):
     mmc_cmd = mmc_commands[mmc_cmd_index]
     editor_mmc_cmd.set(mmc_cmd)
     editor_mmc_id.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id'))
+    editor_global_midi_channel.set(scene_data.get_global_channel() + 1)
+    if scene_data.device_type == 'nanoKONTROL2':
+        editor_global_led_mode.set(scene_data.get_led_mode())
+        frame_led_mode.grid()
+    else:
+        frame_led_mode.grid_remove()
 
 
 # Handle change of editor MIDI channel
 def on_editor_midi_chan(*args):
-    if editor_midi_global.get():
+    if editor_midi_channel_is_global.get():
         spn_chan['state'] = tk.DISABLED
         scene_data.set_group_channel(editor_group_offset,  16)
     else:
@@ -785,10 +796,26 @@ def on_editor_mmc_id(*args):
         pass
 
 
+# Handle change of global MIDI channel
+def on_editor_global_midi_chan(*args):
+    try:
+        scene_data.set_global_channel(editor_global_midi_channel.get() - 1)
+    except:
+        pass
+
+
+# Handle change of LED mode (nanoKONTROL2 only)
+def on_editor_global_led_mode(*args):
+    try:
+        scene_data.set_led_mode(editor_global_led_mode.get())
+    except:
+        pass
+
+
 # Restore the data from last downloaded
 def restore_last_download():
     scene_data.data = scene_backup.data.copy()
-    populate_editor(editor_ctrl, editor_group)
+    populate_editor()
 
 
 # Show application info (about...)
@@ -877,7 +904,7 @@ def on_canvas_click(event):
         for ctrl in transport_ctrl_coords:
             if x > transport_ctrl_coords[ctrl][0] and y > transport_ctrl_coords[ctrl][1] and x < transport_ctrl_coords[ctrl][2] and y < transport_ctrl_coords[ctrl][3]:
                 #print('Clicked on control {}'.format(ctrl))
-                populate_editor(ctrl)
+                populate_editor(ctrl, None)
                 break
 
 
@@ -892,7 +919,7 @@ def set_device_type(type):
     img = Image.open('{}.png'.format(scene_data.device_type))
     canvas_img = ImageTk.PhotoImage(img.resize((width, height), Image.ANTIALIAS))
     canvas.itemconfig(device_image, image=canvas_img)
-    populate_editor('slider', 0)
+    populate_editor()
 
 
 # Handle MIDI data received from JACK or ALSA
@@ -937,42 +964,44 @@ def handle_midi_input(indata):
         elif cmd == 0xE0:
             # Pitch bend
             pass
-    elif len(data) > 10 and data[:7] == [0xF0, 0x42, 0x40 | scene_data.global_midi_chan] + scene_data.get_sysex_id():
+    elif len(data) > 10 and data[:7] == (0xF0, 0x42, 0x40 | scene_data.global_midi_chan) + scene_data.get_sysex_id():
         # Command list
-        if data[7:13] == [0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40]:
+        if data[7:13] == (0x7F, 0x7F, 0x02, 0x03, 0x05, 0x40):
             # nanoKONTROL2 data dump
             scene_data.set_data(data[13:-1])
             scene_backup.data = scene_data.data.copy()
-        elif data[7:13] == [0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40]:
+            set_device_type('nanoKONTROL2')
+        elif data[7:13] == (0x7F, 0x7F, 0x02, 0x02, 0x26, 0x40):
             # nanoKONTROL1 data dump
             scene_data.set_data(data[13:-1])
             scene_backup.data = scene_data.data.copy()
-        elif data[7:10] == [0x5F, 0x23, 0x00]:
+            set_device_type('nanoKONTROL1')
+        elif data[7:10] == (0x5F, 0x23, 0x00):
             # Load data ACK
             #TODO: Indicate successful reception of data
             pass
-        elif data[7:10] == [0x5F, 0x24, 0x00]:
+        elif data[7:10] == (0x5F, 0x24, 0x00):
             # Load data NAK
             #TODO: Indicate failed reception of data
             pass
-        elif data[7:10] == [0x5F, 0x21, 0x00]:
+        elif data[7:10] == (0x5F, 0x21, 0x00):
             # Write completed
             #TODO: Indicate successful data write
             pass
-        elif data[7:10] == [0x5F, 0x22, 0x00]:
+        elif data[7:10] == (0x5F, 0x22, 0x00):
             # Write error
             #TODO: Indicate failed data write
             pass
-    elif data[7:10] == [0x40, 0x00, 0x02]:
+    elif data[7:10] == (0x40, 0x00, 0x02):
         # Native mode out
         pass
-    elif data[7:10] == [0x40, 0x00, 0x03]:
+    elif data[7:10] == (0x40, 0x00, 0x03):
         # Native mode in
         pass
-    elif data[7:10] == [0x5F, 0x42, 0x00]:
+    elif data[7:10] == (0x5F, 0x42, 0x00):
         # Normal mode
         pass
-    elif data[7:10] == [0x5F, 0x42, 0x01]:
+    elif data[7:10] == (0x5F, 0x42, 0x01):
         # Native mode
         pass
 
@@ -1110,18 +1139,20 @@ lbl_device_info.grid(row=0, column=7, sticky='ne')
 
 # Control editor frame
 editor_midi_channel = tk.IntVar()
-editor_midi_global = tk.IntVar()
+editor_midi_channel_is_global = tk.IntVar()
 editor_assign = tk.IntVar()
 editor_behaviour = tk.IntVar()
 editor_cmd = tk.IntVar()
 editor_min = tk.IntVar()
 editor_max = tk.IntVar()
 editor_group_offset = 0
-editor_ctrl = ''
+editor_ctrl = None
 editor_group = None
 editor_mmc_cmd = tk.StringVar()
 editor_mmc_id = tk.IntVar()
 editor_title = tk.StringVar()
+editor_global_midi_channel = tk.IntVar()
+editor_global_led_mode = tk.IntVar()
 
 frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
 frame_editor.grid(row=2, column=1, sticky='nsw')
@@ -1129,10 +1160,10 @@ frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
 frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
 frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
 
-tk.Label(frame_editor, textvariable=editor_title, width=40, bg='#bf64ed').grid(row=0, column=0, columnspan=6, sticky='wne')
+tk.Label(frame_editor, textvariable=editor_title, width=1, bg='#bf64ed').grid(row=0, column=0, columnspan=3, sticky='wne')
 
 frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_assign.grid(row=1, columnspan=6, sticky='ew')
+frame_assign.grid(row=1, columnspan=3, sticky='ew')
 
 tk.Radiobutton(frame_assign, text='Disabled', variable=editor_assign, value=0).grid(row=0, column=0)
 rb_editor_cmd = tk.Radiobutton(frame_assign, text='CC', variable=editor_assign, value=1)
@@ -1141,8 +1172,7 @@ rb_editor_note = tk.Radiobutton(frame_assign, text='Note', variable=editor_assig
 rb_editor_note.grid(row=0, column=2)
 
 frame_behaviour = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_behaviour.grid(row=2, columnspan=6, sticky='ew')
-
+frame_behaviour.grid(row=2, columnspan=3, sticky='ew')
 rb_editor_momentary = tk.Radiobutton(frame_behaviour, text='Momentary', variable=editor_behaviour, value=0)
 rb_editor_momentary.grid(row=0, column=0, sticky='w')
 rb_editor_toggle = tk.Radiobutton(frame_behaviour, text='Toggle', variable=editor_behaviour, value=1)
@@ -1169,12 +1199,23 @@ spn_max.grid(row=4, column=2, sticky='ew')
 tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0, sticky='w')
 spn_chan = tk.Spinbox(frame_editor, from_=1, to=16, textvariable=editor_midi_channel, width=3)
 spn_chan.grid(row=5, column=1, sticky='ew')
-chk_global = tk.Checkbutton(frame_editor, text='Global', variable=editor_midi_global)
+chk_global = tk.Checkbutton(frame_editor, text='Global', variable=editor_midi_channel_is_global)
 chk_global.grid(row=5, column=2, sticky='wsn')
+
+tk.Label(frame_editor, text='Global Settings', bg='#bf64ed').grid(row=6, column=0, columnspan=3, sticky='we')
+
+tk.Label(frame_editor, text='MIDI Channel').grid(row=7, column=0, sticky='w')
+tk.Spinbox(frame_editor, from_=1, to=16, textvar=editor_global_midi_channel, width=3).grid(row=7, column=1, sticky='ew')
+
+frame_led_mode = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_led_mode.grid(row=8, columnspan=3, sticky='ew')
+tk.Label(frame_led_mode, text="LED Mode").grid(row=0, column=0)
+tk.Radiobutton(frame_led_mode, text='Internal', variable=editor_global_led_mode, value=0).grid(row=0, column=1)
+tk.Radiobutton(frame_led_mode, text='External', variable=editor_global_led_mode, value=1).grid(row=0, column=2)
 
 # Configure variable change event handlers
 editor_midi_channel.trace('w', on_editor_midi_chan)
-editor_midi_global.trace('w', on_editor_midi_chan)
+editor_midi_channel_is_global.trace('w', on_editor_midi_chan)
 editor_assign.trace('w', on_editor_assign)
 editor_behaviour.trace('w', on_editor_behaviour)
 editor_cmd.trace('w', on_editor_cmd)
@@ -1182,6 +1223,8 @@ editor_min.trace('w', on_editor_min)
 editor_max.trace('w', on_editor_max)
 editor_mmc_cmd.trace('w', on_editor_mmc_cmd)
 editor_mmc_id.trace('w', on_editor_mmc_id)
+editor_global_midi_channel.trace('w', on_editor_global_midi_chan)
+editor_global_led_mode.trace('w', on_editor_global_led_mode)
 
 # Start jack client
 if jack_client:
