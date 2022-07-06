@@ -53,6 +53,8 @@ pip3 install Pillow
 pip3 install jack-client
 ```
 
+Jack can be installed from: https://jackaudio.org/downloads. Configuring with "Dummy" audio driver may get it going quickly, e.g. if a supported soundcard is not installed. Adding "-Xwinmme" to the "Advanced" sub-tab of "Settings" tab in QjackCtrl added USB MIDI device to jack graph. I found this added two inputs and four outputs. The second input worked. Not sure about output (poor quality USB MIDI interface available for this test).
+
 # Credits and Licensing
 
 Released under the [GPL 3.0 software licensing](https://www.gnu.org/licenses/gpl-3.0.en.html). You may use and distribute this software free of charge. It may not be used within a closed source project. There is no liability protection of its use.
