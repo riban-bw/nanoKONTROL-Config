@@ -45,6 +45,14 @@ sudo apt install python3-pip
 sudo pip3 install alsa-midi
 ```
 
+On Windows 10 I found I could run the application after installing Python modules: Pillow and jack-client and installing and starting JACK. (The application crashes when trying to import jack if the JACK service is not running.)
+
+```
+python3 -m pip install --upgrade pip
+pip3 install Pillow
+pip3 install jack-client
+```
+
 # Credits and Licensing
 
 Released under the [GPL 3.0 software licensing](https://www.gnu.org/licenses/gpl-3.0.en.html). You may use and distribute this software free of charge. It may not be used within a closed source project. There is no liability protection of its use.
