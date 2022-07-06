@@ -869,7 +869,7 @@ def show_info():
 # Resize the device image
 def resize_image(event):
     global canvas_img
-    canvas_img = ImageTk.PhotoImage(img.resize((event.width, event.height), Image.ANTIALIAS))
+    canvas_img = ImageTk.PhotoImage(img.resize((event.width, event.height), Image.LANCZOS))
     canvas.itemconfig(device_image, image=canvas_img)
 
 
@@ -957,7 +957,7 @@ def set_device_type(type):
     width = canvas_img.width()
     height = canvas_img.height()
     img = Image.open('{}.png'.format(scene_data.device_type))
-    canvas_img = ImageTk.PhotoImage(img.resize((width, height), Image.ANTIALIAS))
+    canvas_img = ImageTk.PhotoImage(img.resize((width, height), Image.LANCZOS))
     canvas.itemconfig(device_image, image=canvas_img)
     populate_editor()
 
@@ -1130,11 +1130,11 @@ root.grid_rowconfigure(2, weight=1)
 root.title('riban nanoKONTROL editor')
 
 # Icons
-img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'), Image.ANTIALIAS)
-img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Image.ANTIALIAS)
-img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.ANTIALIAS)
-img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.ANTIALIAS)
-img_restore = ImageTk.PhotoImage(Image.open('restore.png'), Image.ANTIALIAS)
+img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'), Image.LANCZOS)
+img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Image.LANCZOS)
+img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.LANCZOS)
+img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.LANCZOS)
+img_restore = ImageTk.PhotoImage(Image.open('restore.png'), Image.LANCZOS)
 
 tk.Label(root, text='riban nanoKONTROL editor', bg='#80cde0').grid(columnspan=2, sticky='ew')
 
@@ -1302,7 +1302,7 @@ if alsa_client:
 # Device image
 canvas = tk.Canvas(root, width=800, height=250)
 img = Image.open('{}.png'.format(scene_data.device_type))
-canvas_img = ImageTk.PhotoImage(img, Image.ANTIALIAS)
+canvas_img = ImageTk.PhotoImage(img)
 device_image = canvas.create_image(0, 0, anchor='nw', image=canvas_img)
 canvas.grid(row=2, column=0, sticky='nsew')
 canvas.bind('<Button-1>', on_canvas_click)
