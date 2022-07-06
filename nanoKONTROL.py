@@ -1100,7 +1100,7 @@ scene_backup = scene()
 ## Initialise MIDI interfaces ##
 jack_client = None
 try:
-    jack_client = jack.Client('riban-nanoKonfig')
+    jack_client = jack.Client('riban-nanoKonfig', no_start_server=True)
     jack_midi_in = jack_client.midi_inports.register('in')
     jack_midi_out = jack_client.midi_outports.register('out')
 except:
