@@ -36,7 +36,8 @@ credits = [
     'https://freeicons.io',
     'profile/5790', # Transfer, Save
     'profile/3335', # Info
-    'profile/730' # Restore
+    'profile/730', # Restore
+    'profile/6156' # Selected
 ]
 
 mmc_commands = [
@@ -101,8 +102,22 @@ control_map = {
             'stop': 21,
             'rec': 26,
         },
+        'num_group_ctrls': 4,
         'groups': [16, 32, 48, 64, 80, 96, 112, 128, 144],
         'transport': 224,
+        'group_coords': [(0.20,0.28), (0.29,0.36), (0.38,0.45), (0.47,0.54), (0.55,0.62), (0.64,0.71), (0.72,0.79), (0.81,0.88), (0.89,0.97), (0.01,0.19)],
+        'ctrl_coords': {
+            'knob': [0.03, 0.09, 0.08, 0.2],
+            'slider': [0.04, 0.47, 0.07, 0.75],
+            'button_a': [0.00, 0.44, 0.03, 0.54],
+            'button_b': [0.00, 0.71, 0.03, 0.80],
+            'rew': [0.01, 0.52, 0.06, 0.62],
+            'play': [0.07, 0.52, 0.12, 0.62],
+            'ff': [0.12, 0.52, 0.17, 0.62],
+            'cycle': [0.01, 0.66, 0.06, 0.74],
+            'stop': [0.07, 0.66, 0.12, 0.74],
+            'rec': [0.12, 0.66, 0.17, 0.74]
+        }
     },
     'nanoKONTROL2': {
         'param_map': {
@@ -154,9 +169,29 @@ control_map = {
             'rec': 0x2D,
             'cycle': 0x2E
         },
+        'num_group_ctrls': 5,
         'groups': [3, 34, 65, 96, 127, 158, 189, 220],
         'transport': 251,
-        'custom daw assign': 318
+        'custom daw assign': 318,
+        'group_coords': [(0.30,0.37), (0.39,0.45), (0.47,0.54), (0.56,0.63), (0.64,0.71), (0.73,0.80), (0.81,0.88), (0.90,0.96), (0.04, 0.27)],
+        'ctrl_coords': {
+            'knob': [0.03, 0.12, 0.07, 0.26],
+            'slider': [0.04, 0.44, 0.06, 0.74],
+            'solo': [0.00, 0.40, 0.03, 0.48],
+            'mute': [0.00, 0.59, 0.03, 0.67],
+            'prime': [0.00, 0.78, 0.03, 0.86],
+            'prev_track': [0.00, 0.45, 0.03, 0.50],
+            'next_track': [0.05, 0.45, 0.08, 0.50],
+            'cycle': [0.00, 0.60, 0.03, 0.66],
+            'set_marker': [0.10, 0.60, 0.13, 0.66],
+            'prev_marker': [0.15, 0.60, 0.18, 0.66],
+            'next_marker': [0.20, 0.60, 0.23, 0.66],
+            'rew': [0.00, 0.76, 0.03, 0.88],
+            'ff': [0.05, 0.76, 0.08, 0.88],
+            'stop': [0.10, 0.76, 0.13, 0.88],
+            'play': [0.15, 0.76, 0.18, 0.88],
+            'rec': [0.20, 0.76, 0.23, 0.88],
+        }
     }
 }
 
@@ -622,7 +657,7 @@ def populate_editor(ctrl=None, group=None):
     if ctrl is not None:
         editor_ctrl = ctrl
         editor_group = group
-    if editor_ctrl is None:
+    if editor_ctrl is None or editor_ctrl not in control_map[scene_data.device_type]['ctrl_coords']:
         # Must be first time so select first knob
         editor_ctrl = 'knob'
         editor_group = 0
@@ -868,64 +903,21 @@ def show_info():
 
 # Resize the device image
 def resize_image(event):
-    global canvas_img
-    canvas_img = ImageTk.PhotoImage(img.resize((event.width, event.height), Image.LANCZOS))
-    canvas.itemconfig(device_image, image=canvas_img)
+    global photo_img_device, photo_img_sel
+    photo_img_device = ImageTk.PhotoImage(img_device.resize((event.width, event.height), Image.LANCZOS))
+    photo_img_sel = ImageTk.PhotoImage(img_sel.resize((int(event.width * 0.03), int(event.width * 0.03)), Image.LANCZOS))
+    canvas.itemconfig(img_id_device, image=photo_img_device)
+    canvas.itemconfig(img_id_sel, image=photo_img_sel)
+    hightlight_control()
 
 
 # Handle mouse click on image - react to hot-spot clicks
 #   event: Mouse event
 def on_canvas_click(event):
-    #print(event.x, event.y)
-
-    if scene_data.device_type == 'nanoKONTROL1':
-        # x coord range as ratio of image size for each group (0..7, 8=transport)
-        group_coords = [(0.20,0.28), (0.29,0.36), (0.38,0.45), (0.47,0.54), (0.55,0.62), (0.64,0.71), (0.72,0.79), (0.81,0.88), (0.89,0.97), (0.02,0.19)]
-        # relative coords as ration of image size of each control within group from group offset (y coord is absolute)
-        group_ctrl_coords = {
-            'knob': [0.03, 0.11, 0.08, 0.2],
-            'slider': [0.04, 0.47, 0.07, 0.75],
-            'button_a': [0.00, 0.44, 0.03, 0.54],
-            'button_b': [0.00, 0.70, 0.03, 0.80]
-        }
-        transport_ctrl_coords = {
-            'rew': [0.03, 0.52, 0.08, 0.61],
-            'play': [0.08, 0.52, 0.13, 0.61],
-            'ff': [0.14, 0.52, 0.19, 0.61],
-            'cycle': [0.03, 0.66, 0.08, 0.74],
-            'stop': [0.08, 0.66, 0.13, 0.74],
-            'rec': [0.14, 0.66, 0.19, 0.74]
-        }
-    elif scene_data.device_type == 'nanoKONTROL2':
-        # x coord range as ratio of image size for each group (0..7, 8=transport)
-        group_coords = [(0.30,0.37), (0.39,0.45), (0.47,0.54), (0.56,0.63), (0.64,0.71), (0.73,0.80), (0.81,0.88), (0.90,0.96), (0.04, 0.27)]
-        # relative coords as ration of image size of each control within group from group offset (y coord is absolute)
-        group_ctrl_coords = {
-            'knob': [0.03, 0.11, 0.07, 0.26],
-            'slider': [0.04, 0.4, 0.06, 0.74],
-            'solo': [0.00, 0.39, 0.03, 0.48],
-            'mute': [0.00, 0.59, 0.03, 0.67],
-            'prime': [0.00, 0.76, 0.03, 0.86],
-        }
-        transport_ctrl_coords = {
-            'prev_track': [0.04, 0.45, 0.07, 0.50],
-            'next_track': [0.09, 0.45, 0.12, 0.50],
-            'cycle': [0.04, 0.60, 0.07, 0.66],
-            'set_marker': [0.14, 0.60, 0.17, 0.66],
-            'prev_marker': [0.19, 0.60, 0.22, 0.66],
-            'next_marker': [0.24, 0.60, 0.27, 0.66],
-            'rew': [0.04, 0.76, 0.07, 0.88],
-            'ff': [0.09, 0.76, 0.12, 0.88],
-            'stop': [0.14, 0.76, 0.17, 0.88],
-            'play': [0.19, 0.76, 0.22, 0.88],
-            'rec': [0.24, 0.76, 0.27, 0.88],
-        }
-    else:
-        return
-    x = event.x / canvas_img.width()
-    y = event.y / canvas_img.height()
+    x = event.x / photo_img_device.width()
+    y = event.y / photo_img_device.height()
     group = None
-    for i,coord in enumerate(group_coords):
+    for i, coord in enumerate(control_map[scene_data.device_type]['group_coords']):
         if x > coord[0] and x < coord[1]:
             group = i
             group_offset_x = coord[0]
@@ -933,33 +925,44 @@ def on_canvas_click(event):
     
     if group is None:
         return
+    if group == len(control_map[scene_data.device_type]['group_coords']) - 1:
+        group = None
+    for i, ctrl in enumerate(control_map[scene_data.device_type]['ctrl_coords']):
+        if group is None and i < control_map[scene_data.device_type]['num_group_ctrls']:
+            continue
+        elif group is not None and i >= control_map[scene_data.device_type]['num_group_ctrls']:
+            break
+        if x > group_offset_x + control_map[scene_data.device_type]['ctrl_coords'][ctrl][0] and y > control_map[scene_data.device_type]['ctrl_coords'][ctrl][1] and x < group_offset_x + control_map[scene_data.device_type]['ctrl_coords'][ctrl][2] and y < control_map[scene_data.device_type]['ctrl_coords'][ctrl][3]:
+            #print('Clicked on control {} {}'.format(ctrl, group + 1))
+            populate_editor(ctrl, group)
+            hightlight_control()
+            break
 
-    if group < len(group_coords) - 1:            
-        for ctrl in group_ctrl_coords:
-            if x > group_offset_x + group_ctrl_coords[ctrl][0] and y > group_ctrl_coords[ctrl][1] and x < group_offset_x + group_ctrl_coords[ctrl][2] and y < group_ctrl_coords[ctrl][3]:
-                #print('Clicked on control {} {}'.format(ctrl, group + 1))
-                populate_editor(ctrl, group)
-                break
+
+# Highlight selected control
+def hightlight_control():
+    if editor_group is not None:
+        group_offset_x = control_map[scene_data.device_type]['group_coords'][editor_group][0]
     else:
-        for ctrl in transport_ctrl_coords:
-            if x > transport_ctrl_coords[ctrl][0] and y > transport_ctrl_coords[ctrl][1] and x < transport_ctrl_coords[ctrl][2] and y < transport_ctrl_coords[ctrl][3]:
-                #print('Clicked on control {}'.format(ctrl))
-                populate_editor(ctrl, None)
-                break
+        group_offset_x = control_map[scene_data.device_type]['group_coords'][len(control_map[scene_data.device_type]['group_coords']) - 1][0]
+    ctrl_offset_x = control_map[scene_data.device_type]['ctrl_coords'][editor_ctrl][0]
+    ctrl_offset_y = control_map[scene_data.device_type]['ctrl_coords'][editor_ctrl][1]
+    canvas.coords(img_id_sel, (group_offset_x + ctrl_offset_x) * photo_img_device.width(), ctrl_offset_y * photo_img_device.height())
 
 
 # Set the device type
 #   type: Device type ['nanoKONTROL1', 'nanoKONTROL2']
 def set_device_type(type):
-    global img
-    global canvas_img
+    global img_device
+    global photo_img_device
     scene_data.set_device_type(type)
-    width = canvas_img.width()
-    height = canvas_img.height()
-    img = Image.open('{}.png'.format(scene_data.device_type))
-    canvas_img = ImageTk.PhotoImage(img.resize((width, height), Image.LANCZOS))
-    canvas.itemconfig(device_image, image=canvas_img)
+    width = photo_img_device.width()
+    height = photo_img_device.height()
+    img_device = Image.open('{}.png'.format(scene_data.device_type))
+    photo_img_device = ImageTk.PhotoImage(img_device.resize((width, height), Image.LANCZOS))
+    canvas.itemconfig(img_id_device, image=photo_img_device)
     populate_editor()
+    hightlight_control()
 
 
 # Handle MIDI data received from JACK or ALSA
@@ -1267,6 +1270,8 @@ lbl_control_mode.grid(row=9, column=0, sticky='ew')
 cmb_control_mode = ttk.Combobox(frame_editor, textvariable=editor_control_mode, state='readonly', values=control_modes)
 cmb_control_mode.grid(row=9, column=1, columnspan=2, sticky='ew')
 
+#TODO: Add controls for attack, decay, scene name
+
 # Configure variable change event handlers
 editor_midi_channel.trace('w', on_editor_midi_chan)
 editor_midi_channel_is_global.trace('w', on_editor_midi_chan)
@@ -1301,12 +1306,18 @@ if alsa_client:
 
 # Device image
 canvas = tk.Canvas(root, width=800, height=250)
-img = Image.open('{}.png'.format(scene_data.device_type))
-canvas_img = ImageTk.PhotoImage(img)
-device_image = canvas.create_image(0, 0, anchor='nw', image=canvas_img)
+
+img_device = Image.open('{}.png'.format(scene_data.device_type))
+photo_img_device = ImageTk.PhotoImage(img_device)
+img_id_device = canvas.create_image(0, 0, anchor='nw', image=photo_img_device)
 canvas.grid(row=2, column=0, sticky='nsew')
 canvas.bind('<Button-1>', on_canvas_click)
 canvas.bind('<Configure>', resize_image)
+
+# Selected image
+img_sel = Image.open('tick.png')
+photo_img_sel = ImageTk.PhotoImage(img_sel)
+img_id_sel = canvas.create_image(0, 0, image=photo_img_sel)
 
 set_device_type('nanoKONTROL2')
 

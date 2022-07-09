@@ -1,0 +1,23 @@
+import jack
+
+client = jack.Client("riban")
+midi_in = client.midi_inports.register('in')
+midi_out = client.midi_outports.register('out')
+ev = []
+
+@client.set_process_callback
+def process(frames):
+    global ev
+    midi_out.clear_buffer()
+    if ev:
+        midi_out.write_midi_event(0, ev)
+        ev = None 
+
+client.activate()
+
+def select_device(device):
+    global ev
+    if device == 1:
+        ev = [0xF0,0x42,0x50,0x01,0x00,0x00,0x04,0x01,0x00,0x00,0x01,0x00,0x01,0x00,0xF7]
+    elif device == 2:
+        ev = [0xF0,0x42,0x50,0x01,0x00,0x00,0x13,0x01,0x00,0x00,0x01,0x00,0x01,0x00,0xF7]
