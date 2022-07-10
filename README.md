@@ -71,4 +71,4 @@ Icons from [freeicons](https://freeicons.io)
 
 ![image](https://user-images.githubusercontent.com/3158323/176915479-baf8d65f-2365-489f-a51e-11723717cd29.png) [Anu Rocks](https://freeicons.io/profile/730)
 
-Selected [Reda](https://freeicons.io/profile/6156)
+![image](https://user-images.githubusercontent.com/3158323/178100762-9c3db76a-64b7-431c-8df6-ba40e2395564.png) [Reda](https://freeicons.io/profile/6156)
