@@ -22,6 +22,7 @@ import logging
 from PIL import ImageTk, Image
 from threading import Thread
 import ToolTips
+from datetime import datetime
 
 ev = None # Used to pass MIDI messages for JACK to transmit
 echo_id = 0x00 # Used to identify own sysex messages
@@ -328,7 +329,6 @@ class scene:
     # Get scene name
     #   returns: Scene name
     #   nanoKONTROL1 only
-    #TODO: What is scene name used for?
     def get_scene_name(self):
         name = ''
         if self.device_type == 'nanoKONTROL1':
@@ -460,7 +460,7 @@ def send_midi(msg):
         alsa_client.drain_output()
     except:
         pass # ALSA failed but let's try JACk as well
-    ev = msg #TODO: Implement queue for JACK MIDI send
+    ev = msg #TODO: Implement queue for JACK MIDI send (maybe - this is very simple but may be sufficient)
 
 
 ## Device specific MIDI messages - send from application to device ##
@@ -935,6 +935,7 @@ def on_editor_scene_name(*args):
 def restore_last_download():
     scene_data.data = scene_backup.data.copy()
     populate_editor()
+    set_statusbar('Restored to last downloaded scene', 1)
 
 
 # Show application info (about...)
@@ -1007,6 +1008,20 @@ def set_device_type(type):
     canvas.itemconfig(img_id_device, image=photo_img_device)
     populate_editor()
     hightlight_control()
+    set_statusbar('Device {} selected'.format(type))
+
+
+# Show status message
+#   msg: Text message to show in status bar
+#   status: Influences display [0: Info (default), 1: Success, 2: Error]
+def set_statusbar(msg, status=None):
+    midi_rx.set(datetime.now().strftime('%H:%M:%S: ' + msg))
+    if status == 1:
+        lbl_midi_rx['background'] = '#aacf55'
+    elif status == 2:
+        lbl_midi_rx['background'] = '#cc0000'
+    else:
+        lbl_midi_rx['background'] = '#cccccc'
 
 
 # Handle MIDI data received from JACK or ALSA
@@ -1017,8 +1032,7 @@ def handle_midi_input(indata):
     str = '[{}] '.format(len(data))
     for i in data:
         str += '{:02X} '.format(i)
-    #print(str)
-    txt_midi_in.set(str)
+    set_statusbar(str)
 
     if len(data) == 14 and data[:2] == (0xF0, 0x7E) and data[3:5] == (0x06, 0x02, 0x42):
         # Device inquiry reply
@@ -1065,31 +1079,31 @@ def handle_midi_input(indata):
             set_device_type('nanoKONTROL1')
         elif data[7:10] == (0x5F, 0x23, 0x00):
             # Load data ACK
-            #TODO: Indicate successful reception of data
-            pass
+            set_statusbar('Load data succeded', 1)
         elif data[7:10] == (0x5F, 0x24, 0x00):
             # Load data NAK
-            #TODO: Indicate failed reception of data
-            pass
+            set_statusbar('Load data failed', 2)
         elif data[7:10] == (0x5F, 0x21, 0x00):
             # Write completed
-            #TODO: Indicate successful data write
-            pass
+            set_statusbar('Scene saved to device', 1)
         elif data[7:10] == (0x5F, 0x22, 0x00):
             # Write error
-            #TODO: Indicate failed data write
-            pass
+            set_statusbar('Scene failed to save to device', 2)
     elif data[7:10] == (0x40, 0x00, 0x02):
         # Native mode out
+        #TODO: Handle native mode out
         pass
     elif data[7:10] == (0x40, 0x00, 0x03):
         # Native mode in
+        #TODO: Handle native mode in
         pass
     elif data[7:10] == (0x5F, 0x42, 0x00):
         # Normal mode
+        #TODO: Handle normal mode
         pass
     elif data[7:10] == (0x5F, 0x42, 0x01):
         # Native mode
+        #TODO: Handle naitive mode
         pass
 
 
@@ -1359,8 +1373,9 @@ editor_global_led_mode.trace('w', on_editor_global_led_mode)
 editor_control_mode.trace('w', on_editor_control_mode)
 editor_scene_name.trace('w', on_editor_scene_name)
 
-txt_midi_in = tk.StringVar()
-ttk.Label(root, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=1).grid(row=3, column=0, columnspan=2, sticky='ew') # width=<any> stops received MIDI messages stretching width of display 
+midi_rx = tk.StringVar()
+lbl_midi_rx = ttk.Label(root, textvariable=midi_rx, anchor='w', width=1) # width=<any> stops long messages stretching width of display
+lbl_midi_rx.grid(row=3, column=0, columnspan=2, sticky='ew')
 
 # Start jack client
 if jack_client:
