@@ -1156,16 +1156,27 @@ def jack_process(frames):
 
 # Refresh jack MIDI ports
 def refresh_jack_ports():
+    global source_ports, destination_ports
+
     ports = jack_client.get_ports(is_midi=True, is_output=True)
     ports.remove(jack_midi_out)
-    for port in ports:
-        source_ports[port.name] = ['jack', port]
-
-    midi_dest_port_ports = []
-    ports = jack_client.get_ports(is_midi=True, is_input=True)
-    ports.remove(jack_midi_in)
+    temp_ports = {}
+    for port in destination_ports:
+        if destination_ports[port][0] == 'alsa':
+            temp_ports[port] = destination_ports[port]
+    destination_ports = temp_ports
     for port in ports:
         destination_ports[port.name] = ['jack', port]
+
+    ports = jack_client.get_ports(is_midi=True, is_input=True)
+    ports.remove(jack_midi_in)
+    temp_ports = {}
+    for port in source_ports:
+        if source_ports[port][0] == 'alsa':
+            temp_ports[port] = source_ports[port]
+    source_ports = temp_ports
+    for port in ports:
+        source_ports[port.name] = ['jack', port]
 
     update_ports()
 
