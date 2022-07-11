@@ -117,7 +117,8 @@ control_map = {
             'ff': [0.12, 0.52, 0.17, 0.62],
             'cycle': [0.01, 0.66, 0.06, 0.74],
             'stop': [0.07, 0.66, 0.12, 0.74],
-            'rec': [0.12, 0.66, 0.17, 0.74]
+            'rec': [0.12, 0.66, 0.17, 0.74],
+            'scene': [0.01, 0.79, 0.05, 0.87]
         }
     },
     'nanoKONTROL2': {
@@ -490,26 +491,27 @@ def send_dump_request():
 
 
 # Request current temporary scene data be saved on device
-#   scene: Index of scene to save [0..3, Default: 0]
-#TODO: Handle different scenes on nanoKONTROL1 - maybe use SCENE button on img indcating current scene with LED on img
-def send_scene_write_request(scene=0):
-    if scene < 0 or scene > 3:
-        return
-    send_command_list((0x1F, 0x11, scene))
+def send_scene_write_request():
+    if scene_data.device_type == 'nanoKONTROL1':
+        send_command_list((0x1F, 0x11, current_scene))
+    else:
+        send_command_list((0x1F, 0x11, 0))
 
 
 # Request native mode in (nanoKONTROL2)
-#TODO: Implement native mode on nanoKONTROL2
+#TODO: Implement native mode in on nanoKONTROL2
 def send_native_mode():
     send_command_list((0x00, 0x00, 0x00))
 
 
 # Request native mode out (nanoKONTROL2)
+#TODO: Implement native mode out on nanoKONTROL2
 def send_native_mode():
     send_command_list((0x00, 0x00, 0x01))
 
 
 # Request mode (nanoKONTROL2)
+#TODO: Implement request mode on nanoKONTROL2
 def send_query_mode():
     send_command_list((0x1F, 0x12, 0x00))
 
@@ -948,12 +950,15 @@ def show_info():
 
 # Resize the device image
 def resize_image(event):
-    global photo_img_device, photo_img_sel
+    global photo_img_device, photo_img_sel, photo_img_scene_led
     photo_img_device = ImageTk.PhotoImage(img_device.resize((event.width, event.height), Image.LANCZOS))
     photo_img_sel = ImageTk.PhotoImage(img_sel.resize((int(event.width * 0.03), int(event.width * 0.03)), Image.LANCZOS))
+    photo_img_scene_led = ImageTk.PhotoImage(img_scene_led.resize((int(event.width * 0.02), int(event.width * 0.02)), Image.LANCZOS))
     canvas.itemconfig(img_id_device, image=photo_img_device)
     canvas.itemconfig(img_id_sel, image=photo_img_sel)
-    hightlight_control()
+    canvas.itemconfig(img_id_scene_led, image=photo_img_scene_led)
+    highlight_control()
+    set_current_scene()
 
 
 # Handle mouse click on image - react to hot-spot clicks
@@ -961,6 +966,7 @@ def resize_image(event):
 def on_canvas_click(event):
     x = event.x / photo_img_device.width()
     y = event.y / photo_img_device.height()
+    #print(x,y)
     group = None
     for i, coord in enumerate(control_map[scene_data.device_type]['group_coords']):
         if x > coord[0] and x < coord[1]:
@@ -979,13 +985,17 @@ def on_canvas_click(event):
             break
         if x > group_offset_x + control_map[scene_data.device_type]['ctrl_coords'][ctrl][0] and y > control_map[scene_data.device_type]['ctrl_coords'][ctrl][1] and x < group_offset_x + control_map[scene_data.device_type]['ctrl_coords'][ctrl][2] and y < control_map[scene_data.device_type]['ctrl_coords'][ctrl][3]:
             #print('Clicked on control {} {}'.format(ctrl, group + 1))
-            populate_editor(ctrl, group)
-            hightlight_control()
+            if ctrl == 'scene':
+                set_current_scene(current_scene + 1)
+                send_scene_change_request(current_scene)
+            else:
+                populate_editor(ctrl, group)
+                highlight_control()
             break
 
 
 # Highlight selected control
-def hightlight_control():
+def highlight_control():
     if editor_group is not None:
         group_offset_x = control_map[scene_data.device_type]['group_coords'][editor_group][0]
     else:
@@ -993,6 +1003,18 @@ def hightlight_control():
     ctrl_offset_x = control_map[scene_data.device_type]['ctrl_coords'][editor_ctrl][0]
     ctrl_offset_y = control_map[scene_data.device_type]['ctrl_coords'][editor_ctrl][1]
     canvas.coords(img_id_sel, (group_offset_x + ctrl_offset_x) * photo_img_device.width(), ctrl_offset_y * photo_img_device.height())
+
+
+# Update current scene
+#   scene: Index of scene. None for to update display with current scene (default)
+def set_current_scene(scene=None):
+    global current_scene
+    if scene is not None:
+        if scene < 0 or scene > 3:
+            current_scene = 0
+        else:
+            current_scene = scene
+    canvas.coords(img_id_scene_led, (0.09 + 0.025 * current_scene) * photo_img_device.width(), 0.82 * photo_img_device.height())
 
 
 # Set the device type
@@ -1006,8 +1028,13 @@ def set_device_type(type):
     img_device = Image.open('{}.png'.format(scene_data.device_type))
     photo_img_device = ImageTk.PhotoImage(img_device.resize((width, height), Image.LANCZOS))
     canvas.itemconfig(img_id_device, image=photo_img_device)
+    if scene_data.device_type == 'nanoKONTROL1':
+        set_current_scene()
+        canvas.itemconfig(img_id_scene_led, state=tk.NORMAL)
+    else:
+        canvas.itemconfig(img_id_scene_led, state=tk.HIDDEN)
     populate_editor()
-    hightlight_control()
+    highlight_control()
     set_statusbar('Device {} selected'.format(type))
 
 
@@ -1089,22 +1116,26 @@ def handle_midi_input(indata):
         elif data[7:10] == (0x5F, 0x22, 0x00):
             # Write error
             set_statusbar('Scene failed to save to device', 2)
-    elif data[7:10] == (0x40, 0x00, 0x02):
-        # Native mode out
-        #TODO: Handle native mode out
-        pass
-    elif data[7:10] == (0x40, 0x00, 0x03):
-        # Native mode in
-        #TODO: Handle native mode in
-        pass
-    elif data[7:10] == (0x5F, 0x42, 0x00):
-        # Normal mode
-        #TODO: Handle normal mode
-        pass
-    elif data[7:10] == (0x5F, 0x42, 0x01):
-        # Native mode
-        #TODO: Handle naitive mode
-        pass
+        elif data[7:10] == (0x40, 0x00, 0x02):
+            # Native mode out
+            set_statusbar("Native mode 'out' set on device", 1)
+        elif data[7:10] == (0x40, 0x00, 0x03):
+            # Native mode in
+            set_statusbar("Native mode out set 'in' device", 1)
+        elif data[7:10] == (0x5F, 0x42, 0x00):
+            # Normal mode
+            set_statusbar('Normal mode set on device', 1)
+        elif data[7:10] == (0x5F, 0x42, 0x01):
+            # Native mode
+            set_statusbar('Native mode set on device', 1)
+        elif data[7:9] == (0x5F, 0x4F):
+            # Scene change
+            print("scene data ", data[9])
+            try:
+                set_current_scene(data[9])
+                set_statusbar('Scene change {}'.format(current_scene + 1), 1)
+            except Exception as e:
+                logging.warning('Scene change error %s', e)
 
 
 ## JACK Functions ##
@@ -1181,6 +1212,7 @@ if alsa_client == jack_client == None:
 
 
 # Create UI
+current_scene = 0
 source_ports = {} # Dictionary of available MIDI source ports: display_name:[type,port] where type is jack or alsa
 destination_ports = {} # Dictionary of available MIDI destination ports: display_name:[type,port] where type is jack or alsa
 
@@ -1191,11 +1223,11 @@ root.grid_rowconfigure(2, weight=1)
 root.title('riban nanoKONTROL editor')
 
 # Icons
-img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'), Image.LANCZOS)
-img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180), Image.LANCZOS)
-img_save = ImageTk.PhotoImage(Image.open('save.png'), Image.LANCZOS)
-img_info = ImageTk.PhotoImage(Image.open('info.png'), Image.LANCZOS)
-img_restore = ImageTk.PhotoImage(Image.open('restore.png'), Image.LANCZOS)
+img_transfer_down = ImageTk.PhotoImage(Image.open('transfer.png'))
+img_transfer_up = ImageTk.PhotoImage(Image.open('transfer.png').rotate(180))
+img_save = ImageTk.PhotoImage(Image.open('save.png'))
+img_info = ImageTk.PhotoImage(Image.open('info.png'))
+img_restore = ImageTk.PhotoImage(Image.open('restore.png'))
 
 tk.Label(root, text='riban nanoKONTROL editor', bg='#80cde0').grid(columnspan=2, sticky='ew')
 
@@ -1408,6 +1440,11 @@ canvas.bind('<Configure>', resize_image) #TODO: Image changes size when quantity
 img_sel = Image.open('tick.png')
 photo_img_sel = ImageTk.PhotoImage(img_sel)
 img_id_sel = canvas.create_image(0, 0, image=photo_img_sel)
+
+# Scene LED image
+img_scene_led = Image.open('led_red.png')
+photo_img_scene_led = ImageTk.PhotoImage(img_scene_led)
+img_id_scene_led = canvas.create_image(0, 0, image=photo_img_scene_led)
 
 set_device_type('nanoKONTROL2')
 
