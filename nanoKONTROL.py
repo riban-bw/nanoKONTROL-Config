@@ -38,7 +38,8 @@ credits = [
     'profile/5790', # Transfer, Save
     'profile/3335', # Info
     'profile/730', # Restore
-    'profile/6156' # Selected
+    'profile/6156', # Selected
+    'https://freesvg.org' # LED
 ]
 
 mmc_commands = [
@@ -951,7 +952,7 @@ def show_info():
 # Resize the device image
 def resize_image(event):
     global photo_img_device, photo_img_sel, photo_img_scene_led
-    photo_img_device = ImageTk.PhotoImage(img_device.resize((event.width, event.height), Image.LANCZOS))
+    photo_img_device = ImageTk.PhotoImage(img_device.resize((event.width, event.width // 4), Image.LANCZOS))
     photo_img_sel = ImageTk.PhotoImage(img_sel.resize((int(event.width * 0.03), int(event.width * 0.03)), Image.LANCZOS))
     photo_img_scene_led = ImageTk.PhotoImage(img_scene_led.resize((int(event.width * 0.02), int(event.width * 0.02)), Image.LANCZOS))
     canvas.itemconfig(img_id_device, image=photo_img_device)
@@ -1042,13 +1043,13 @@ def set_device_type(type):
 #   msg: Text message to show in status bar
 #   status: Influences display [0: Info (default), 1: Success, 2: Error]
 def set_statusbar(msg, status=None):
-    midi_rx.set(datetime.now().strftime('%H:%M:%S: ' + msg))
     if status == 1:
-        lbl_midi_rx['background'] = '#aacf55'
+        bg = '#aacf55'
     elif status == 2:
-        lbl_midi_rx['background'] = '#cc0000'
+        bg = '#cc0000'
     else:
-        lbl_midi_rx['background'] = '#cccccc'
+        bg = '#cccccc'
+    lbl_statusbar.config(text=datetime.now().strftime('%H:%M:%S: ' + msg), background=bg)
 
 
 # Handle MIDI data received from JACK or ALSA
@@ -1130,7 +1131,6 @@ def handle_midi_input(indata):
             set_statusbar('Native mode set on device', 1)
         elif data[7:9] == (0x5F, 0x4F):
             # Scene change
-            print("scene data ", data[9])
             try:
                 set_current_scene(data[9])
                 set_statusbar('Scene change {}'.format(current_scene + 1), 1)
@@ -1179,7 +1179,8 @@ def alsa_midi_in_thread():
         try:
             handle_midi_input(event.midi_bytes)
         except:
-            print(repr(event))
+            #print(repr(event))
+            pass
 
 
 ##################################### 
@@ -1405,9 +1406,8 @@ editor_global_led_mode.trace('w', on_editor_global_led_mode)
 editor_control_mode.trace('w', on_editor_control_mode)
 editor_scene_name.trace('w', on_editor_scene_name)
 
-midi_rx = tk.StringVar()
-lbl_midi_rx = ttk.Label(root, textvariable=midi_rx, anchor='w', width=1) # width=<any> stops long messages stretching width of display
-lbl_midi_rx.grid(row=3, column=0, columnspan=2, sticky='ew')
+lbl_statusbar = ttk.Label(root, anchor='w', width=1, background='#cccccc') # width=<any> stops long messages stretching width of display
+lbl_statusbar.grid(row=3, column=0, columnspan=2, sticky='ew')
 
 # Start jack client
 if jack_client:
@@ -1434,7 +1434,7 @@ photo_img_device = ImageTk.PhotoImage(img_device)
 img_id_device = canvas.create_image(0, 0, anchor='nw', image=photo_img_device)
 canvas.grid(row=2, column=0, sticky='nsew')
 canvas.bind('<Button-1>', on_canvas_click)
-canvas.bind('<Configure>', resize_image) #TODO: Image changes size when quantity of parameters changes
+canvas.bind('<Configure>', resize_image)
 
 # Selected image
 img_sel = Image.open('tick.png')
