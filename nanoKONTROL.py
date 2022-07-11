@@ -87,7 +87,7 @@ control_map = {
             'decay': [5, 127],
             'mmc_cmd': [2, 12],
             'mmc_id': [3, 127],
-            'transport behaviour': [5, 1]
+            'transport_behaviour': [4, 1]
         },
         'group_map': {
             'channel': 0,
@@ -232,7 +232,7 @@ class scene:
     def reset_data(self):
         if self.device_type == 'nanoKONTROL1':
             self.data = [0] * 256
-            self.set_scene_name('Scene 0')
+            self.set_scene_name('Scene 1')
         elif self.device_type == 'nanoKONTROL2':
             self.data = [0] * 339
             self.set_control_mode(0)
@@ -267,7 +267,7 @@ class scene:
                 self.set_control_parameter(transport_offset, control, 'cmd', i)
                 self.set_control_parameter(transport_offset, control, 'mmc_cmd', i)
                 self.set_control_parameter(transport_offset, control, 'mmc_id', 0)
-                self.set_control_parameter(transport_offset, control, 'behaviour', 0)
+                self.set_control_parameter(transport_offset, control, 'transport_behaviour', 0)
 
 
         elif self.device_type == 'nanoKONTROL2':
@@ -422,7 +422,7 @@ class scene:
     # Get control parameter
     #   group_offset: Offset of group / transport
     #   control: Control name, e.g. 'button_a'
-    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'min', 'max']
+    #   param: Control parameter ['assign', 'behaviour', 'transport_behaviour', 'cmd', 'min', 'max']
     #   returns: Parameter value or 0 if parameter not available
     def get_control_parameter(self, group_offset, control, param):
         try:
@@ -436,7 +436,7 @@ class scene:
     # Set control parameter
     #   group_offset: Offset of group / transport
     #   control: Control name, e.g. 'button_a'
-    #   param: Control parameter ['assign', 'behaviour', 'cmd', 'min', 'max']
+    #   param: Control parameter ['assign', 'behaviour', 'transport_behaviour', 'cmd', 'min', 'max']
     #   value: Parameter value
     def set_control_parameter(self, group_offset, control, param, value):
         try:
@@ -581,7 +581,7 @@ def update_ports():
 
 # Handle selection from MIDI source drop-down list
 def source_changed(event):
-    name = jack_source.get()
+    name = midi_source_port.get()
     if name not in source_ports:
         return
     try:
@@ -610,7 +610,7 @@ def source_changed(event):
 
 # Handle selection from MIDI destination drop-down list
 def destination_changed(event):
-    name = jack_dest.get()
+    name = midi_dest_port.get()
     if name not in destination_ports:
         return
     try:
@@ -649,6 +649,8 @@ def populate_editor(ctrl=None, group=None):
     global editor_cmd
     global editor_min
     global editor_max
+    global editor_attack
+    global editor_decay
     global editor_ctrl
     global editor_mmc_cmd
     global editor_mmc_id
@@ -675,15 +677,21 @@ def populate_editor(ctrl=None, group=None):
     editor_note.set(notes[scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'cmd')])
     editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'min'))
     editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'max'))
+    editor_attack.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'attack'))
+    editor_decay.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'decay'))
     mmc_cmd_index = scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_cmd')
     mmc_cmd = mmc_commands[mmc_cmd_index]
     editor_mmc_cmd.set(mmc_cmd)
     editor_mmc_id.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id'))
     editor_global_midi_channel.set(scene_data.get_global_channel() + 1)
+    editor_scene_name.set(scene_data.get_scene_name())
 
     if is_button:
         rb_editor_note['state'] = tk.NORMAL
-        editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
+        if scene_data.device_type == 'nanoKONTROL1' and editor_group is None:
+            editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'transport_behaviour'))
+        else:
+            editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
         rb_editor_momentary['state'] = tk.NORMAL
         rb_editor_toggle['state'] = tk.NORMAL
         lbl_min['text'] = 'Off'
@@ -703,20 +711,21 @@ def populate_editor(ctrl=None, group=None):
     else:
         editor_midi_channel_is_global.set(1)
 
-    if scene_data.device_type == 'nanoKONTROL1' and group is None:
+    if scene_data.device_type == 'nanoKONTROL1' and editor_group is None:
         rb_editor_note['text'] = 'MMC'
         if editor_assign.get() == 2:
             lbl_cmd['text'] = 'MMC Command'
+            lbl_max['text'] = 'Device ID'
             lbl_min.grid_remove()
+            spn_cmd.grid_remove()
+            spn_min.grid_remove()
+            spn_max.grid_remove()
+            cmb_mmc_cmd.grid(row=1, column=0, columnspan=2, sticky='ew')
+            spn_mmc_id.grid()
         else:
             lbl_cmd['text'] = 'CC'
+            lbl_max['text'] = 'On'
             lbl_min.grid()
-        lbl_max['text'] = 'Device ID'
-        spn_cmd.grid_remove()
-        spn_min.grid_remove()
-        spn_max.grid_remove()
-        cmb_mmc_cmd.grid(row=4, column=0, columnspan=2, sticky='ew')
-        spn_mmc_id.grid()
     else:
         rb_editor_note['text'] = 'Note'
         if editor_assign.get() == 2:
@@ -734,17 +743,22 @@ def populate_editor(ctrl=None, group=None):
         cmb_mmc_cmd.grid_remove()
         spn_mmc_id.grid_remove()
 
+    if editor_ctrl in ['button_a', 'button_b']:
+        frame_ad.grid()
+    else:
+        frame_ad.grid_remove()
+
 
     if scene_data.device_type == 'nanoKONTROL2':
         editor_global_led_mode.set(scene_data.get_led_mode())
         frame_led_mode.grid()
         editor_control_mode.set(control_modes[scene_data.get_control_mode()])
-        lbl_control_mode.grid()
-        cmb_control_mode.grid()
+        frame_control_mode.grid()
+        frame_scene.grid_remove()
     else:
         frame_led_mode.grid_remove()
-        lbl_control_mode.grid_remove()
-        cmb_control_mode.grid_remove()
+        frame_control_mode.grid_remove()
+        frame_scene.grid()
 
 
 # Handle change of editor MIDI channel
@@ -765,11 +779,12 @@ def on_editor_assign(*args):
         pass
     if editor_assign.get() == 0:
         # Disabled
-        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global]:
+        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_attack, spn_decay, spn_chan, chk_global, cmb_cmd, cmb_mmc_cmd, spn_mmc_id]:
             ctrl['state'] = tk.DISABLED
     elif editor_assign.get() == 1:
         # CC
-        for ctrl in [spn_cmd, spn_min, spn_max, chk_global, lbl_cmd]:
+        lbl_min.grid()
+        for ctrl in [spn_cmd, spn_min, spn_max, spn_attack, spn_decay, chk_global]:
             ctrl['state'] = tk.NORMAL
         lbl_cmd['text'] = 'CC'
         if editor_ctrl in ['knob', 'slider']:
@@ -779,22 +794,26 @@ def on_editor_assign(*args):
         cmb_mmc_cmd.grid_remove()
         spn_cmd.grid()
         cmb_cmd.grid_remove()
+        spn_mmc_id.grid_remove()
         spn_min.grid()
+        spn_max.grid()
     elif editor_assign.get() == 2:
         # Note / MMC
-        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global]:
+        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global, cmb_cmd, cmb_mmc_cmd, spn_mmc_id]:
             ctrl['state'] = tk.NORMAL
-        if editor_group_offset == control_map[scene_data.device_type]['transport']:
+        if editor_group_offset == control_map[scene_data.device_type]['transport'] and scene_data.device_type == 'nanoKONTROL1':
             lbl_cmd['text'] = 'MMC Command'
-            if scene_data.device_type == 'nanoKONTROL1':
-                cmb_mmc_cmd.grid()
-                spn_cmd.grid_remove()
-                spn_min.grid_remove()
+            lbl_min.grid_remove()
+            lbl_max['text'] = 'Device ID'
+            cmb_mmc_cmd.grid()
+            spn_mmc_id.grid()
+            spn_cmd.grid_remove()
+            spn_min.grid_remove()
+            spn_max.grid_remove()
         else:
             lbl_cmd['text'] = 'Note'
             cmb_cmd.grid()
             spn_cmd.grid_remove()
-
 
     if editor_assign.get():
         if editor_ctrl not in ['slider', 'knob']:
@@ -809,7 +828,10 @@ def on_editor_assign(*args):
 # Handle change of editor behaviour
 def on_editor_behaviour(*args):
     try:
-        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
+        if scene_data.device_type == 'nanoKONTROL1' and editor_group is None:
+            scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'transport_behaviour', editor_behaviour.get())
+        else:
+            scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'behaviour', editor_behaviour.get())
     except:
         pass
 
@@ -842,6 +864,22 @@ def on_editor_min(*args):
 def on_editor_max(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'max', editor_max.get())
+    except:
+        pass
+
+
+# Handle change of editor attack (nanoKONTROL 1)
+def on_editor_attack(*args):
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'attack', editor_attack.get())
+    except:
+        pass
+
+
+# Handle change of editor attack (nanoKONTROL 1)
+def on_editor_decay(*args):
+    try:
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'decay', editor_decay.get())
     except:
         pass
 
@@ -885,6 +923,12 @@ def on_editor_control_mode(*args):
         scene_data.set_control_mode(control_modes.index(editor_control_mode.get()))
     except:
         pass
+
+
+# Handle change of scene name (nanoKONTROL1 only)
+def on_editor_scene_name(*args):
+    editor_scene_name.set(editor_scene_name.get()[:12])
+    scene_data.set_scene_name(editor_scene_name.get())
 
 
 # Restore the data from last downloaded
@@ -1072,7 +1116,7 @@ def refresh_jack_ports():
     for port in ports:
         source_ports[port.name] = ['jack', port]
 
-    jack_dest_ports = []
+    midi_dest_port_ports = []
     ports = jack_client.get_ports(is_midi=True, is_input=True)
     ports.remove(jack_midi_in)
     for port in ports:
@@ -1146,20 +1190,17 @@ frame_top = tk.Frame(root, padx=2, pady=2)
 frame_top.columnconfigure(7, weight=1)
 frame_top.grid(row=1, columnspan=2, sticky='enw')
 
-jack_source = tk.StringVar()
+midi_source_port = tk.StringVar()
 ttk.Label(frame_top, text='MIDI input').grid(row=0, column=0, sticky='w')
-cmb_midi_input = ttk.Combobox(frame_top, textvariable=jack_source, state='readonly')
+cmb_midi_input = ttk.Combobox(frame_top, textvariable=midi_source_port, state='readonly')
 cmb_midi_input.bind('<<ComboboxSelected>>', source_changed)
 cmb_midi_input.grid(row=1, column=0, sticky='n')
 if alsa_client:
     cmb_midi_input.bind('<Enter>', populate_asla_source)
 
-txt_midi_in = tk.StringVar()
-ttk.Label(root, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=1).grid(row=3, column=0, columnspan=2, sticky='ew') # width=<any> stops received MIDI messages stretching width of display 
-
-jack_dest = tk.StringVar()
+midi_dest_port = tk.StringVar()
 ttk.Label(frame_top, text='MIDI output').grid(row=0, column=1, sticky='w')
-cmb_midi_output = ttk.Combobox(frame_top, textvariable=jack_dest, state='readonly')
+cmb_midi_output = ttk.Combobox(frame_top, textvariable=midi_dest_port, state='readonly')
 cmb_midi_output.bind('<<ComboboxSelected>>', destination_changed)
 cmb_midi_output.grid(row=1, column=1, sticky='n')
 if alsa_client:
@@ -1188,6 +1229,8 @@ editor_cmd = tk.IntVar()
 editor_note = tk.StringVar()
 editor_min = tk.IntVar()
 editor_max = tk.IntVar()
+editor_attack = tk.IntVar()
+editor_decay = tk.IntVar()
 editor_group_offset = 0
 editor_ctrl = None
 editor_group = None
@@ -1197,17 +1240,15 @@ editor_title = tk.StringVar()
 editor_global_midi_channel = tk.IntVar()
 editor_global_led_mode = tk.IntVar()
 editor_control_mode = tk.StringVar()
+editor_scene_name = tk.StringVar()
 
 frame_editor = tk.Frame(root, padx=4, pady=4, bd=2, relief='groove')
 frame_editor.grid(row=2, column=1, sticky='nsw')
-frame_editor.columnconfigure(0, uniform='editor_uni', weight=1)
-frame_editor.columnconfigure(1, uniform='editor_uni', weight=1)
-frame_editor.columnconfigure(2, uniform='editor_uni', weight=1)
 
-tk.Label(frame_editor, textvariable=editor_title, width=1, bg='#bf64ed').grid(row=0, column=0, columnspan=3, sticky='wne')
+tk.Label(frame_editor, textvariable=editor_title, width=1, bg='#bf64ed').grid(row=0, column=0, sticky='wne')
 
 frame_assign = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_assign.grid(row=1, columnspan=3, sticky='ew')
+frame_assign.grid(row=1, sticky='ew')
 
 tk.Radiobutton(frame_assign, text='Disabled', variable=editor_assign, value=0).grid(row=0, column=0)
 rb_editor_cmd = tk.Radiobutton(frame_assign, text='CC', variable=editor_assign, value=1)
@@ -1216,61 +1257,89 @@ rb_editor_note = tk.Radiobutton(frame_assign, text='Note', variable=editor_assig
 rb_editor_note.grid(row=0, column=2)
 
 frame_behaviour = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_behaviour.grid(row=2, columnspan=3, sticky='ew')
+frame_behaviour.grid(row=2, sticky='ew')
 rb_editor_momentary = tk.Radiobutton(frame_behaviour, text='Momentary', variable=editor_behaviour, value=0)
 rb_editor_momentary.grid(row=0, column=0, sticky='w')
 rb_editor_toggle = tk.Radiobutton(frame_behaviour, text='Toggle', variable=editor_behaviour, value=1)
 rb_editor_toggle.grid(row=0, column=1, sticky='w')
 
-lbl_cmd = tk.Label(frame_editor, text='CC', width=12, anchor='w')
-lbl_cmd.grid(row=3, column=0, sticky='w')
-lbl_min = tk.Label(frame_editor, text='Min', width=5, anchor='w')
-lbl_min.grid(row=3, column=1, sticky='w')
-lbl_max = tk.Label(frame_editor, text='Max', width=10, anchor='w')
-lbl_max.grid(row=3, column=2, sticky='w')
+frame_cmd = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_cmd.columnconfigure(0, uniform='cmd_uni', weight=1)
+frame_cmd.columnconfigure(1, uniform='cmd_uni', weight=1)
+frame_cmd.columnconfigure(2, uniform='cmd_uni', weight=1)
+frame_cmd.grid(row=3, sticky='ew')
+lbl_cmd = tk.Label(frame_cmd, text='CC', width=12, anchor='w')
+lbl_cmd.grid(row=0, column=0, sticky='w')
+lbl_min = tk.Label(frame_cmd, text='Min', width=5, anchor='w')
+lbl_min.grid(row=0, column=1, sticky='w')
+lbl_max = tk.Label(frame_cmd, text='Max', width=10, anchor='w')
+lbl_max.grid(row=0, column=2, sticky='w')
 
-cmb_mmc_cmd = ttk.Combobox(frame_editor, textvariable=editor_mmc_cmd, state='readonly', values=mmc_commands, width=3)
-spn_mmc_id = tk.Spinbox(frame_editor, from_=0, to=127, textvar=editor_mmc_id, width=3)
-spn_mmc_id.grid(row=4, column=2, sticky='ew')
+cmb_mmc_cmd = ttk.Combobox(frame_cmd, textvariable=editor_mmc_cmd, state='readonly', values=mmc_commands, width=3)
+spn_mmc_id = tk.Spinbox(frame_cmd, from_=0, to=127, textvar=editor_mmc_id, width=3)
+spn_mmc_id.grid(row=1, column=2, sticky='ew')
 spn_mmc_id.grid_remove()
-spn_cmd = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_cmd, width=3)
-spn_cmd.grid(row=4, column=0, sticky='ew')
+spn_cmd = tk.Spinbox(frame_cmd, from_=0, to=127, textvariable=editor_cmd, width=3)
+spn_cmd.grid(row=1, column=0, sticky='ew')
 note_names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
 notes = []
 for octave in range(-1, 10):
     for i in range(12):
         notes.append('{}{} ({})'.format(note_names[i], octave, 12 * (octave + 1) + i))
-cmb_cmd = ttk.Combobox(frame_editor, textvariable=editor_note, state='readonly', values=notes[:127], width=3)
-cmb_cmd.grid(row=4, column=0, sticky='ew')
+cmb_cmd = ttk.Combobox(frame_cmd, textvariable=editor_note, state='readonly', values=notes[:127], width=3)
+cmb_cmd.grid(row=1, column=0, sticky='ew')
 cmb_cmd.grid_remove()
-spn_min = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_min, width=3)
-spn_min.grid(row=4, column=1, sticky='ew')
-spn_max = tk.Spinbox(frame_editor, from_=0, to=127, textvariable=editor_max, width=3)
-spn_max.grid(row=4, column=2, sticky='ew')
+spn_min = tk.Spinbox(frame_cmd, from_=0, to=127, textvariable=editor_min, width=3)
+spn_min.grid(row=1, column=1, sticky='ew')
+spn_max = tk.Spinbox(frame_cmd, from_=0, to=127, textvariable=editor_max, width=3)
+spn_max.grid(row=1, column=2, sticky='ew')
 
-tk.Label(frame_editor, text='MIDI Channel').grid(row=5, column=0, sticky='w')
-spn_chan = tk.Spinbox(frame_editor, from_=1, to=16, textvariable=editor_midi_channel, width=3)
-spn_chan.grid(row=5, column=1, sticky='ew')
-chk_global = tk.Checkbutton(frame_editor, text='Global', variable=editor_midi_channel_is_global)
-chk_global.grid(row=5, column=2, sticky='wsn')
+frame_ad = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_ad.columnconfigure(0, uniform='cmd_uni', weight=1)
+frame_ad.columnconfigure(1, uniform='cmd_uni', weight=1)
+frame_ad.columnconfigure(2, uniform='cmd_uni', weight=1)
+frame_ad.grid(row=4, column=0, sticky='ew')
+tk.Label(frame_ad, text='Attack').grid(row=0, column=0, sticky='w')
+tk.Label(frame_ad, text='Decay').grid(row=0, column=1, sticky='w')
+spn_attack = tk.Spinbox(frame_ad, from_=0, to=127, textvariable=editor_attack, width=3)
+spn_attack.grid(row=1, column=0, sticky='ew')
+spn_decay = tk.Spinbox(frame_ad, from_=0, to=127, textvariable=editor_decay, width=3)
+spn_decay.grid(row=1, column=1, sticky='ew')
 
-tk.Label(frame_editor, text='Global Settings', bg='#bf64ed').grid(row=6, column=0, columnspan=3, sticky='we')
+frame_channel = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_channel.grid(row=5, sticky='ew')
+tk.Label(frame_channel, text='MIDI Channel').grid(row=0, column=0, sticky='w')
+spn_chan = tk.Spinbox(frame_channel, from_=1, to=16, textvariable=editor_midi_channel, width=3)
+spn_chan.grid(row=0, column=1, sticky='ew')
+chk_global = tk.Checkbutton(frame_channel, text='Global', variable=editor_midi_channel_is_global)
+chk_global.grid(row=0, column=2, sticky='wsn')
 
-tk.Label(frame_editor, text='MIDI Channel').grid(row=7, column=0, sticky='w')
-tk.Spinbox(frame_editor, from_=1, to=16, textvar=editor_global_midi_channel, width=3).grid(row=7, column=1, sticky='ew')
+tk.Label(frame_editor, text='Global Settings', bg='#bf64ed').grid(row=6, column=0, sticky='we')
+
+frame_global_channel = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_global_channel.grid(row=7, sticky='ew')
+tk.Label(frame_global_channel, text='MIDI Channel').grid(row=0, column=0, sticky='w')
+tk.Spinbox(frame_global_channel, from_=1, to=16, textvar=editor_global_midi_channel, width=3).grid(row=0, column=1, sticky='ew')
 
 frame_led_mode = tk.Frame(frame_editor, bd=2, relief='groove')
-frame_led_mode.grid(row=8, columnspan=3, sticky='ew')
+frame_led_mode.grid(row=8, sticky='ew')
 tk.Label(frame_led_mode, text="LED Mode").grid(row=0, column=0)
 tk.Radiobutton(frame_led_mode, text='Internal', variable=editor_global_led_mode, value=0).grid(row=0, column=1)
 tk.Radiobutton(frame_led_mode, text='External', variable=editor_global_led_mode, value=1).grid(row=0, column=2)
 
-lbl_control_mode = tk.Label(frame_editor, text='Control Mode', width=12, anchor='w')
-lbl_control_mode.grid(row=9, column=0, sticky='ew')
-cmb_control_mode = ttk.Combobox(frame_editor, textvariable=editor_control_mode, state='readonly', values=control_modes)
-cmb_control_mode.grid(row=9, column=1, columnspan=2, sticky='ew')
+frame_control_mode  = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_control_mode.grid(row=9, sticky='ew')
+lbl_control_mode = tk.Label(frame_control_mode, text='Control Mode', width=12, anchor='w')
+lbl_control_mode.grid(row=0, column=0, sticky='ew')
+cmb_control_mode = ttk.Combobox(frame_control_mode, textvariable=editor_control_mode, state='readonly', values=control_modes)
+cmb_control_mode.grid(row=0, column=1, sticky='ew')
 
-#TODO: Add controls for attack, decay, scene name
+frame_scene = tk.Frame(frame_editor, bd=2, relief='groove')
+frame_scene.grid(row=9, sticky='ew')
+lbl_scene_name = tk.Label(frame_scene, text="Scene name")
+lbl_scene_name.grid(row=0, column=0, sticky='w')
+txt_scene_name = tk.Entry(frame_scene, width=12, textvariable=editor_scene_name)
+txt_scene_name.grid(row=0, column=1, sticky='ew')
 
 # Configure variable change event handlers
 editor_midi_channel.trace('w', on_editor_midi_chan)
@@ -1281,11 +1350,17 @@ editor_cmd.trace('w', on_editor_cmd)
 editor_note.trace('w', on_editor_note)
 editor_min.trace('w', on_editor_min)
 editor_max.trace('w', on_editor_max)
+editor_attack.trace('w', on_editor_attack)
+editor_decay.trace('w', on_editor_decay)
 editor_mmc_cmd.trace('w', on_editor_mmc_cmd)
 editor_mmc_id.trace('w', on_editor_mmc_id)
 editor_global_midi_channel.trace('w', on_editor_global_midi_chan)
 editor_global_led_mode.trace('w', on_editor_global_led_mode)
 editor_control_mode.trace('w', on_editor_control_mode)
+editor_scene_name.trace('w', on_editor_scene_name)
+
+txt_midi_in = tk.StringVar()
+ttk.Label(root, textvariable=txt_midi_in, anchor='w', background='#aacf55', width=1).grid(row=3, column=0, columnspan=2, sticky='ew') # width=<any> stops received MIDI messages stretching width of display 
 
 # Start jack client
 if jack_client:
@@ -1312,7 +1387,7 @@ photo_img_device = ImageTk.PhotoImage(img_device)
 img_id_device = canvas.create_image(0, 0, anchor='nw', image=photo_img_device)
 canvas.grid(row=2, column=0, sticky='nsew')
 canvas.bind('<Button-1>', on_canvas_click)
-canvas.bind('<Configure>', resize_image)
+canvas.bind('<Configure>', resize_image) #TODO: Image changes size when quantity of parameters changes
 
 # Selected image
 img_sel = Image.open('tick.png')
