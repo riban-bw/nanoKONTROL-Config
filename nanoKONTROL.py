@@ -29,9 +29,9 @@ echo_id = 0x00 # Used to identify own sysex messages
 
 credits = [
     'Code:',
-    'brian@riban.co.uk',
+    'riban.co.uk',
     'Tooltips',
-    'http://www.pedrojhenriques.com',
+    'pedrojhenriques.com',
     '',
     'Icons:',
     'https://freeicons.io',
@@ -86,7 +86,7 @@ control_map = {
             'min': [2, 127],
             'max': [3, 127],
             'attack': [4, 127],
-            'decay': [5, 127],
+            'release': [5, 127],
             'mmc_cmd': [2, 12],
             'mmc_id': [3, 127],
             'transport_behaviour': [4, 1]
@@ -105,7 +105,7 @@ control_map = {
             'rec': 26,
         },
         'num_group_ctrls': 4,
-        'groups': [16, 32, 48, 64, 80, 96, 112, 128, 144],
+        'groups': [16, 39, 62, 85, 108, 131, 154, 177, 200],
         'transport': 224,
         'group_coords': [(0.20,0.28), (0.29,0.36), (0.38,0.45), (0.47,0.54), (0.55,0.62), (0.64,0.71), (0.72,0.79), (0.81,0.88), (0.89,0.97), (0.01,0.19)],
         'ctrl_coords': {
@@ -233,47 +233,23 @@ class scene:
 
     # Reset scene data to default values
     def reset_data(self):
+        transport_offset = control_map[self.device_type]['transport']
         if self.device_type == 'nanoKONTROL1':
             self.data = [0] * 256
-            self.set_scene_name('Scene 1')
+            self.set_scene_name('')
+            mmc_map = [5, 2, 0, 4, 3, 1]
+            for i, control in enumerate(('rec', 'play', 'stop', 'rew', 'ff', 'cycle')):
+                transport_offset = control_map[self.device_type]['transport']
+                self.set_control_parameter(transport_offset, control, 'assign', 1)
+                self.set_control_parameter(transport_offset, control, 'cmd', 44 + i)
+                self.set_control_parameter(transport_offset, control, 'mmc_cmd', mmc_map[i])
+                self.set_control_parameter(transport_offset, control, 'mmc_id', 127)
+                self.set_control_parameter(transport_offset, control, 'transport_behaviour', 0)
+
         elif self.device_type == 'nanoKONTROL2':
             self.data = [0] * 339
             self.set_control_mode(0)
             self.set_led_mode(0)
-        self.set_global_channel(15)
-        for group, group_offset in enumerate(control_map[self.device_type]['groups']):
-            self.set_group_channel(group_offset, 16)
-            if self.device_type == 'nanoKONTROL1':
-                for i, control in enumerate(('slider', 'knob', 'button_a', 'button_b')):
-                    self.set_control_parameter(group_offset, control, 'assign', 1)
-                    self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group) #TODO: What is the default CC?
-                    self.set_control_parameter(group_offset, control, 'min', 0)
-                    self.set_control_parameter(group_offset, control, 'max', 127)
-                for i, control in enumerate(('button_a', 'button_b')):
-                    self.set_control_parameter(group_offset, control, 'behaviour', 0)
-                    self.set_control_parameter(group_offset, control, 'attack', 0) #TODO: What is the default attack value
-                    self.set_control_parameter(group_offset, control, 'decay', 0) #TODO: What is the default decay value
-            elif self.device_type == 'nanoKONTROL2':
-                for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime')):
-                    self.set_control_parameter(group_offset, control, 'assign', 1)
-                    self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group)
-                    self.set_control_parameter(group_offset, control, 'min', 0)
-                    self.set_control_parameter(group_offset, control, 'max', 127)
-                    self.set_control_parameter(group_offset, control, 'behaviour', 0)
-
-        transport_offset = control_map[self.device_type]['transport']
-        self.set_group_channel(transport_offset, 16)
-        if self.device_type == 'nanoKONTROL1':
-            for i, control in enumerate(('stop', 'play', 'cycle', 'ff', 'rew', 'rec')):
-                transport_offset = control_map[self.device_type]['transport']
-                self.set_control_parameter(transport_offset, control, 'assign', 2)
-                self.set_control_parameter(transport_offset, control, 'cmd', i)
-                self.set_control_parameter(transport_offset, control, 'mmc_cmd', i)
-                self.set_control_parameter(transport_offset, control, 'mmc_id', 0)
-                self.set_control_parameter(transport_offset, control, 'transport_behaviour', 0)
-
-
-        elif self.device_type == 'nanoKONTROL2':
             for i, control in enumerate(('play', 'stop', 'rew', 'ff', 'rec', 'cycle', 'prev_track', 'next_track', 'set_marker', 'prev_marker', 'next_marker')):
                 transport_offset = control_map[self.device_type]['transport']
                 self.set_control_parameter(transport_offset, control, 'assign', 1)
@@ -284,11 +260,31 @@ class scene:
                 self.set_control_parameter(transport_offset, control, 'min', 0)
                 self.set_control_parameter(transport_offset, control, 'max', 127)
                 self.set_control_parameter(transport_offset, control, 'behaviour', 0)
-
-            self.set_led_mode(1)
-
             for i in range(318, 323):
                 self.data[i] = 0 #TODO: What are default custom daw values?
+
+        self.set_global_channel(0)
+        self.set_group_channel(transport_offset, 16)
+
+        for group, group_offset in enumerate(control_map[self.device_type]['groups']):
+            self.set_group_channel(group_offset, 16)
+            if self.device_type == 'nanoKONTROL1':
+                for i, control in enumerate(('slider', 'knob', 'button_a', 'button_b')):
+                    self.set_control_parameter(group_offset, control, 'assign', 1)
+                    self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group) #This differs from Korg's own defaults but that doesn't matter
+                    self.set_control_parameter(group_offset, control, 'min', 0)
+                    self.set_control_parameter(group_offset, control, 'max', 127)
+                for i, control in enumerate(('button_a', 'button_b')):
+                    self.set_control_parameter(group_offset, control, 'behaviour', 0)
+                    self.set_control_parameter(group_offset, control, 'attack', 0)
+                    self.set_control_parameter(group_offset, control, 'release', 0)
+            elif self.device_type == 'nanoKONTROL2':
+                for i, control in enumerate(('slider', 'knob', 'solo', 'mute', 'prime')):
+                    self.set_control_parameter(group_offset, control, 'assign', 1)
+                    self.set_control_parameter(group_offset, control, 'cmd', 0x10 * i + group)
+                    self.set_control_parameter(group_offset, control, 'min', 0)
+                    self.set_control_parameter(group_offset, control, 'max', 127)
+                    self.set_control_parameter(group_offset, control, 'behaviour', 0)
 
 
     # Get data (payload) in MIDI sysex format
@@ -462,8 +458,7 @@ def send_midi(msg):
         alsa_client.drain_output()
     except:
         pass # ALSA failed but let's try JACk as well
-    ev = msg #TODO: Implement queue for JACK MIDI send (maybe - this is very simple but may be sufficient)
-
+    ev = msg # Very simple slow (single message) JACK MIDI send mechanism
 
 ## Device specific MIDI messages - send from application to device ##
 
@@ -653,7 +648,7 @@ def populate_editor(ctrl=None, group=None):
     global editor_min
     global editor_max
     global editor_attack
-    global editor_decay
+    global editor_release
     global editor_ctrl
     global editor_mmc_cmd
     global editor_mmc_id
@@ -681,11 +676,14 @@ def populate_editor(ctrl=None, group=None):
     editor_min.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'min'))
     editor_max.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'max'))
     editor_attack.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'attack'))
-    editor_decay.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'decay'))
+    editor_release.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'release'))
     mmc_cmd_index = scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_cmd')
-    mmc_cmd = mmc_commands[mmc_cmd_index]
-    editor_mmc_cmd.set(mmc_cmd)
-    editor_mmc_id.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id'))
+    try:
+        mmc_cmd = mmc_commands[mmc_cmd_index]
+        editor_mmc_cmd.set(mmc_cmd)
+        editor_mmc_id.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'mmc_id'))
+    except:
+        logging.warning("Invalid MMC parameter")
     editor_global_midi_channel.set(scene_data.get_global_channel() + 1)
     editor_scene_name.set(scene_data.get_scene_name())
 
@@ -693,8 +691,10 @@ def populate_editor(ctrl=None, group=None):
         rb_editor_note['state'] = tk.NORMAL
         if scene_data.device_type == 'nanoKONTROL1' and editor_group is None:
             editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'transport_behaviour'))
+            rb_editor_note['text'] = 'MMC'
         else:
             editor_behaviour.set(scene_data.get_control_parameter(editor_group_offset, editor_ctrl, 'behaviour'))
+            rb_editor_note['text'] = 'Note'
         rb_editor_momentary['state'] = tk.NORMAL
         rb_editor_toggle['state'] = tk.NORMAL
         lbl_min['text'] = 'Off'
@@ -714,43 +714,10 @@ def populate_editor(ctrl=None, group=None):
     else:
         editor_midi_channel_is_global.set(1)
 
-    if scene_data.device_type == 'nanoKONTROL1' and editor_group is None:
-        rb_editor_note['text'] = 'MMC'
-        if editor_assign.get() == 2:
-            lbl_cmd['text'] = 'MMC Command'
-            lbl_max['text'] = 'Device ID'
-            lbl_min.grid_remove()
-            spn_cmd.grid_remove()
-            spn_min.grid_remove()
-            spn_max.grid_remove()
-            cmb_mmc_cmd.grid(row=1, column=0, columnspan=2, sticky='ew')
-            spn_mmc_id.grid()
-        else:
-            lbl_cmd['text'] = 'CC'
-            lbl_max['text'] = 'On'
-            lbl_min.grid()
-    else:
-        rb_editor_note['text'] = 'Note'
-        if editor_assign.get() == 2:
-            lbl_cmd['text'] = 'Note'
-            cmb_cmd.grid()
-            spn_cmd.grid_remove()
-        else:
-            lbl_cmd['text'] = 'CC'
-            cmb_cmd.grid_remove()
-            spn_cmd.grid()
-        lbl_min.grid()
-        spn_cmd.grid()
-        spn_min.grid()
-        spn_max.grid()
-        cmb_mmc_cmd.grid_remove()
-        spn_mmc_id.grid_remove()
-
     if editor_ctrl in ['button_a', 'button_b']:
         frame_ad.grid()
     else:
         frame_ad.grid_remove()
-
 
     if scene_data.device_type == 'nanoKONTROL2':
         editor_global_led_mode.set(scene_data.get_led_mode())
@@ -782,12 +749,11 @@ def on_editor_assign(*args):
         pass
     if editor_assign.get() == 0:
         # Disabled
-        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_attack, spn_decay, spn_chan, chk_global, cmb_cmd, cmb_mmc_cmd, spn_mmc_id]:
+        for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_attack, spn_release, spn_chan, chk_global, cmb_cmd, cmb_mmc_cmd, spn_mmc_id]:
             ctrl['state'] = tk.DISABLED
     elif editor_assign.get() == 1:
         # CC
-        lbl_min.grid()
-        for ctrl in [spn_cmd, spn_min, spn_max, spn_attack, spn_decay, chk_global]:
+        for ctrl in [spn_cmd, spn_min, spn_max, spn_attack, spn_release, chk_global]:
             ctrl['state'] = tk.NORMAL
         lbl_cmd['text'] = 'CC'
         if editor_ctrl in ['knob', 'slider']:
@@ -795,11 +761,20 @@ def on_editor_assign(*args):
         else:
             lbl_max['text'] = 'On'
         cmb_mmc_cmd.grid_remove()
-        spn_cmd.grid()
         cmb_cmd.grid_remove()
         spn_mmc_id.grid_remove()
-        spn_min.grid()
-        spn_max.grid()
+        spn_cmd.grid(columnspan=1)
+        if editor_group is None and scene_data.device_type == 'nanoKONTROL1':
+            lbl_min.grid_remove()
+            lbl_max.grid_remove()
+            spn_min.grid_remove()
+            spn_max.grid_remove()
+        else:
+            lbl_cmd['text'] = 'CC'
+            lbl_min.grid()
+            lbl_max.grid()
+            spn_min.grid()
+            spn_max.grid()
     elif editor_assign.get() == 2:
         # Note / MMC
         for ctrl in [rb_editor_momentary, rb_editor_toggle, spn_cmd, spn_min, spn_max, spn_chan, chk_global, cmb_cmd, cmb_mmc_cmd, spn_mmc_id]:
@@ -808,11 +783,12 @@ def on_editor_assign(*args):
             lbl_cmd['text'] = 'MMC Command'
             lbl_min.grid_remove()
             lbl_max['text'] = 'Device ID'
-            cmb_mmc_cmd.grid()
-            spn_mmc_id.grid()
+            lbl_max.grid()
             spn_cmd.grid_remove()
             spn_min.grid_remove()
             spn_max.grid_remove()
+            cmb_mmc_cmd.grid()
+            spn_mmc_id.grid()
         else:
             lbl_cmd['text'] = 'Note'
             cmb_cmd.grid()
@@ -839,7 +815,7 @@ def on_editor_behaviour(*args):
         pass
 
 
-# Handle change of editor command (CC/MMC)
+# Handle change of editor command (CC)
 def on_editor_cmd(*args):
     try:
         scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'cmd', editor_cmd.get())
@@ -880,9 +856,9 @@ def on_editor_attack(*args):
 
 
 # Handle change of editor attack (nanoKONTROL 1)
-def on_editor_decay(*args):
+def on_editor_release(*args):
     try:
-        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'decay', editor_decay.get())
+        scene_data.set_control_parameter(editor_group_offset, editor_ctrl, 'release', editor_release.get())
     except:
         pass
 
@@ -1072,8 +1048,8 @@ def handle_midi_input(indata):
         scene_data.global_midi_chan = data[4]
         family_id = data[6] + (data[7] << 7)
         member_id = data[8] + (data[9] << 7)
-        minor = data[10]  + (data[11]<< 7)
-        major = data[12] + (data[13]<< 7)
+        minor = data[10]  + (data[11] << 7)
+        major = data[12] + (data[13] << 7)
         if family_id == 132:
             set_device_type('nanoKONTROL1')
         elif family_id == 147:
@@ -1158,8 +1134,7 @@ def jack_process(frames):
 def refresh_jack_ports():
     global source_ports, destination_ports
 
-    ports = jack_client.get_ports(is_midi=True, is_output=True)
-    ports.remove(jack_midi_out)
+    ports = jack_client.get_ports(is_midi=True, is_input=True)
     temp_ports = {}
     for port in destination_ports:
         if destination_ports[port][0] == 'alsa':
@@ -1168,8 +1143,7 @@ def refresh_jack_ports():
     for port in ports:
         destination_ports[port.name] = ['jack', port]
 
-    ports = jack_client.get_ports(is_midi=True, is_input=True)
-    ports.remove(jack_midi_in)
+    ports = jack_client.get_ports(is_midi=True, is_output=True)
     temp_ports = {}
     for port in source_ports:
         if source_ports[port][0] == 'alsa':
@@ -1288,7 +1262,7 @@ editor_note = tk.StringVar()
 editor_min = tk.IntVar()
 editor_max = tk.IntVar()
 editor_attack = tk.IntVar()
-editor_decay = tk.IntVar()
+editor_release = tk.IntVar()
 editor_group_offset = 0
 editor_ctrl = None
 editor_group = None
@@ -1333,12 +1307,9 @@ lbl_min.grid(row=0, column=1, sticky='w')
 lbl_max = tk.Label(frame_cmd, text='Max', width=10, anchor='w')
 lbl_max.grid(row=0, column=2, sticky='w')
 
-cmb_mmc_cmd = ttk.Combobox(frame_cmd, textvariable=editor_mmc_cmd, state='readonly', values=mmc_commands, width=3)
-spn_mmc_id = tk.Spinbox(frame_cmd, from_=0, to=127, textvar=editor_mmc_id, width=3)
-spn_mmc_id.grid(row=1, column=2, sticky='ew')
-spn_mmc_id.grid_remove()
-spn_cmd = tk.Spinbox(frame_cmd, from_=0, to=127, textvariable=editor_cmd, width=3)
-spn_cmd.grid(row=1, column=0, sticky='ew')
+cmb_mmc_cmd = ttk.Combobox(frame_cmd, textvariable=editor_mmc_cmd, state='readonly', values=mmc_commands)
+cmb_mmc_cmd.grid(row=1, column=0, columnspan=2, sticky='ew')
+cmb_mmc_cmd.grid_remove()
 note_names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
 notes = []
 for octave in range(-1, 10):
@@ -1347,8 +1318,13 @@ for octave in range(-1, 10):
 cmb_cmd = ttk.Combobox(frame_cmd, textvariable=editor_note, state='readonly', values=notes[:127], width=3)
 cmb_cmd.grid(row=1, column=0, sticky='ew')
 cmb_cmd.grid_remove()
+spn_cmd = tk.Spinbox(frame_cmd, from_=0, to=127, textvariable=editor_cmd, width=3)
+spn_cmd.grid(row=1, column=0, columnspan=2, sticky='ew')
 spn_min = tk.Spinbox(frame_cmd, from_=0, to=127, textvariable=editor_min, width=3)
 spn_min.grid(row=1, column=1, sticky='ew')
+spn_mmc_id = tk.Spinbox(frame_cmd, from_=0, to=127, textvar=editor_mmc_id, width=3)
+spn_mmc_id.grid(row=1, column=2, sticky='ew')
+spn_mmc_id.grid_remove()
 spn_max = tk.Spinbox(frame_cmd, from_=0, to=127, textvariable=editor_max, width=3)
 spn_max.grid(row=1, column=2, sticky='ew')
 
@@ -1357,12 +1333,12 @@ frame_ad.columnconfigure(0, uniform='cmd_uni', weight=1)
 frame_ad.columnconfigure(1, uniform='cmd_uni', weight=1)
 frame_ad.columnconfigure(2, uniform='cmd_uni', weight=1)
 frame_ad.grid(row=4, column=0, sticky='ew')
-tk.Label(frame_ad, text='Attack').grid(row=0, column=0, sticky='w')
-tk.Label(frame_ad, text='Decay').grid(row=0, column=1, sticky='w')
+tk.Label(frame_ad, text='Attack time').grid(row=0, column=0, sticky='w')
+tk.Label(frame_ad, text='Release time').grid(row=0, column=1, sticky='w')
 spn_attack = tk.Spinbox(frame_ad, from_=0, to=127, textvariable=editor_attack, width=3)
 spn_attack.grid(row=1, column=0, sticky='ew')
-spn_decay = tk.Spinbox(frame_ad, from_=0, to=127, textvariable=editor_decay, width=3)
-spn_decay.grid(row=1, column=1, sticky='ew')
+spn_release = tk.Spinbox(frame_ad, from_=0, to=127, textvariable=editor_release, width=3)
+spn_release.grid(row=1, column=1, sticky='ew')
 
 frame_channel = tk.Frame(frame_editor, bd=2, relief='groove')
 frame_channel.grid(row=5, sticky='ew')
@@ -1409,7 +1385,7 @@ editor_note.trace('w', on_editor_note)
 editor_min.trace('w', on_editor_min)
 editor_max.trace('w', on_editor_max)
 editor_attack.trace('w', on_editor_attack)
-editor_decay.trace('w', on_editor_decay)
+editor_release.trace('w', on_editor_release)
 editor_mmc_cmd.trace('w', on_editor_mmc_cmd)
 editor_mmc_id.trace('w', on_editor_mmc_id)
 editor_global_midi_channel.trace('w', on_editor_global_midi_chan)
