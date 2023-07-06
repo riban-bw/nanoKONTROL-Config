@@ -536,7 +536,7 @@ def send_port_detect():
 ## UI  Functions ##
 
 # Add and remove ALSA ports to global list of source ports 
-def populate_asla_source(event):
+def populate_asla_source(event=None):
     global source_ports
     ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
     temp_ports = {}
@@ -551,7 +551,7 @@ def populate_asla_source(event):
 
 
 # Add and remove ALSA ports to global list of destination ports 
-def populate_asla_dest(event):
+def populate_asla_dest(event=None):
     global destination_ports
     ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
     temp_ports = {}
@@ -578,7 +578,7 @@ def update_ports():
 
 
 # Handle selection from MIDI source drop-down list
-def source_changed(event):
+def source_changed(event=None):
     name = midi_source_port.get()
     if name not in source_ports:
         return
@@ -607,7 +607,7 @@ def source_changed(event):
 
 
 # Handle selection from MIDI destination drop-down list
-def destination_changed(event):
+def destination_changed(event=None):
     name = midi_dest_port.get()
     if name not in destination_ports:
         return
@@ -1439,5 +1439,21 @@ tooltip_obj = ToolTips.ToolTips(
     [btn_download, btn_upload, btn_save, btn_restore, btn_info],
     ['Download from nanoKONTROL', 'Upload to nanoKONTROL', 'Save current scene on nanoKONTROL', 'Restore to last download', 'About']
 )
+
+if alsa_client:
+    populate_asla_source()
+    populate_asla_dest()
+if jack_client:
+    refresh_jack_ports()
+for name in destination_ports:
+    if name.startswith("nanoKONTROL"):
+        midi_dest_port.set(name)
+        break
+for name in source_ports:
+    if name.startswith("nanoKONTROL"):
+        midi_source_port.set(name)
+        break
+source_changed()
+destination_changed()
 
 root.mainloop()
