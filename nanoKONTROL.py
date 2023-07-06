@@ -1173,11 +1173,11 @@ def auto_connect(force=False):
     if not force and midi_dest_port.get() and midi_source_port.get():
         return
     for name in destination_ports:
-        if name.startswith("nanoKONTROL"):
+        if "nanoKONTROL" in name:
             midi_dest_port.set(name)
             break
     for name in source_ports:
-        if name.startswith("nanoKONTROL"):
+        if "nanoKONTROL" in name:
             midi_source_port.set(name)
             break
     source_changed()
