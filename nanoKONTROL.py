@@ -575,6 +575,7 @@ def update_ports():
     for port in destination_ports:
         values.append(port)
     cmb_midi_output['values'] = values
+    auto_connect()
 
 
 # Handle selection from MIDI source drop-down list
@@ -1168,6 +1169,21 @@ def alsa_midi_in_thread():
             pass
 
 
+def auto_connect(force=False):
+    if not force and midi_dest_port.get() and midi_source_port.get():
+        return
+    for name in destination_ports:
+        if name.startswith("nanoKONTROL"):
+            midi_dest_port.set(name)
+            break
+    for name in source_ports:
+        if name.startswith("nanoKONTROL"):
+            midi_source_port.set(name)
+            break
+    source_changed()
+    destination_changed()
+
+
 ##################################### 
 ## Core sequential functional code ##
 ##################################### 
@@ -1445,15 +1461,5 @@ if alsa_client:
     populate_asla_dest()
 if jack_client:
     refresh_jack_ports()
-for name in destination_ports:
-    if name.startswith("nanoKONTROL"):
-        midi_dest_port.set(name)
-        break
-for name in source_ports:
-    if name.startswith("nanoKONTROL"):
-        midi_source_port.set(name)
-        break
-source_changed()
-destination_changed()
 
 root.mainloop()
