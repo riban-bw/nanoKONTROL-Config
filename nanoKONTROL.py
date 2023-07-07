@@ -536,7 +536,7 @@ def send_port_detect():
 ## UI  Functions ##
 
 # Add and remove ALSA ports to global list of source ports 
-def populate_asla_source(event=None):
+def populate_alsa_source(event=None):
     global source_ports
     ports = alsa_client.list_ports(input=True, type=alsa_midi.PortType.ANY)
     temp_ports = {}
@@ -551,7 +551,7 @@ def populate_asla_source(event=None):
 
 
 # Add and remove ALSA ports to global list of destination ports 
-def populate_asla_dest(event=None):
+def populate_alsa_dest(event=None):
     global destination_ports
     ports = alsa_client.list_ports(output=True, type=alsa_midi.PortType.ANY)
     temp_ports = {}
@@ -1172,13 +1172,13 @@ def alsa_midi_in_thread():
 def auto_connect(force=False):
     if not force and midi_dest_port.get() and midi_source_port.get():
         return
-    for name in destination_ports:
-        if "nanoKONTROL" in name:
-            midi_dest_port.set(name)
-            break
     for name in source_ports:
         if "nanoKONTROL" in name:
             midi_source_port.set(name)
+            break
+    for name in destination_ports:
+        if "nanoKONTROL" in name:
+            midi_dest_port.set(name)
             break
     source_changed()
     destination_changed()
@@ -1244,7 +1244,7 @@ cmb_midi_input = ttk.Combobox(frame_top, textvariable=midi_source_port, state='r
 cmb_midi_input.bind('<<ComboboxSelected>>', source_changed)
 cmb_midi_input.grid(row=1, column=0, sticky='n')
 if alsa_client:
-    cmb_midi_input.bind('<Enter>', populate_asla_source)
+    cmb_midi_input.bind('<Enter>', populate_alsa_source)
 
 midi_dest_port = tk.StringVar()
 ttk.Label(frame_top, text='MIDI output').grid(row=0, column=1, sticky='w')
@@ -1252,7 +1252,7 @@ cmb_midi_output = ttk.Combobox(frame_top, textvariable=midi_dest_port, state='re
 cmb_midi_output.bind('<<ComboboxSelected>>', destination_changed)
 cmb_midi_output.grid(row=1, column=1, sticky='n')
 if alsa_client:
-    cmb_midi_output.bind('<Enter>', populate_asla_dest)
+    cmb_midi_output.bind('<Enter>', populate_alsa_dest)
 
 btn_download = ttk.Button(frame_top, image=img_transfer_down, command=send_dump_request)
 btn_download.grid(row=0, column=2, rowspan=2)
@@ -1457,8 +1457,8 @@ tooltip_obj = ToolTips.ToolTips(
 )
 
 if alsa_client:
-    populate_asla_source()
-    populate_asla_dest()
+    populate_alsa_source()
+    populate_alsa_dest()
 if jack_client:
     refresh_jack_ports()
 
